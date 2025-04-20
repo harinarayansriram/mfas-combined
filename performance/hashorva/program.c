@@ -1,13 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 #include <omp.h>
 #include <stdbool.h>
 #include "solution_instance.h"
 
-#define WORK_DIR "/feedforward"
-#define THREAD_NUM 14
 #define MAX_CELL_ID 136648
 #define TOTAL_CONNECTIONS 41912141
 
@@ -15,28 +14,27 @@
 char **cell_names;
 int *cell_names_r_keys;
 int *cell_names_r_values;
-int cell_names_count = 0;
+int cell_names_count;
 
-Connection *connection_by_cells_id_dict;
-long connection_dict_count = 0;
+// Connection *connection_by_cells_id_dict;
+long connection_dict_count;
 
 int **outgoing_connections;
 int *outgoing_connections_size;
 int **incoming_connections;
 int *incoming_connections_size;
 
-long cnt = 0;
-long last_change_step = 0;
-long last_step = 0;
+long cnt;
+long last_change_step;
+long last_step;
 double last_temperature;
 
-BestSolution best_solution = {NULL, 0, 0};
-SolutionInstance *the_solution;
+BestSolution best_solution;
 
 void randomize_ints(int *list, int size) {
     srand(time(NULL));
     for (int i = 0; i < size; i++) {
-        int j = rand() % size;
+        int j = (int)(random() % size);
         int temp = list[i];
         list[i] = list[j];
         list[j] = temp;
@@ -48,14 +46,14 @@ void randomize_ints_range(int *list, int min_ix, int max_ix) {
     int range = max_ix - min_ix + 1;
     
     for (int i = min_ix; i <= max_ix; i++) {
-        int j = min_ix + (rand() % range);
+        int j = min_ix + (int)(random() % range);
         int temp = list[i];
         list[i] = list[j];
         list[j] = temp;
     }
 }
 
-void read_connections() {
+void read_connections(char* filename) {
     printf("Reading connections...\n");
     
     // Allocate memory for connections
@@ -68,11 +66,11 @@ void read_connections() {
     incoming_connections_size = (int*)calloc(MAX_CELL_ID + 1, sizeof(int));
     
     // Open file
-    char filename[256];
-    sprintf(filename, "%s/graph.csv", WORK_DIR);
+    // char filename[256];
+    // sprintf(filename, "%s/graph.csv", WORK_DIR);
     FILE *file = fopen(filename, "r");
     if (!file) {
-        perror("Failed to open graph.csv");
+        perror("Failed to open graph file");
         exit(1);
     }
     
@@ -125,12 +123,9 @@ void read_connections() {
     printf("Connections loaded: %ld\n", connection_dict_count);
 }
 
-void read_cell_names() {
+void read_cell_names(char* filename) {
     printf("Reading cell names...\n");
     
-    // Open file
-    char filename[256];
-    sprintf(filename, "%s/cells.txt", WORK_DIR);
     FILE *file = fopen(filename, "r");
     if (!file) {
         perror("Failed to open cells.txt");
@@ -144,7 +139,6 @@ void read_cell_names() {
         line_count++;
     }
     
-    // Allocate memory
     cell_names = (char**)malloc(sizeof(char*) * (MAX_CELL_ID + 1));
     cell_names_r_keys = (int*)malloc(sizeof(int) * line_count);
     cell_names_r_values = (int*)malloc(sizeof(int) * line_count);
@@ -168,19 +162,13 @@ void read_cell_names() {
     printf("Cell names loaded: %d\n", cell_names_count);
 }
 
-void convert_to_cell_names() {
-    // Open source file
-    char source_filename[256];
-    sprintf(source_filename, "%s/state/35452425_04065000000.txt", WORK_DIR);
+void convert_to_cell_names(char* source_filename, char* dest_filename) {
     FILE *source_file = fopen(source_filename, "r");
     if (!source_file) {
         perror("Failed to open source file");
         return;
     }
     
-    // Open destination file
-    char dest_filename[256];
-    sprintf(dest_filename, "%s/Result/35452425.csv", WORK_DIR);
     FILE *dest_file = fopen(dest_filename, "w");
     if (!dest_file) {
         perror("Failed to open destination file");
@@ -188,7 +176,6 @@ void convert_to_cell_names() {
         return;
     }
     
-    // Write header
     fprintf(dest_file, "Node ID,Order\n");
     
     // Process each line
@@ -208,16 +195,16 @@ void convert_to_cell_names() {
     fclose(dest_file);
 }
 
-void thread_run(double temperature, double cooling_rate) {
+void thread_run(double temperature, double cooling_rate, SolutionInstance* the_solution) {
     #pragma omp parallel num_threads(THREAD_NUM)
     {
         #pragma omp for
         for (int i = 0; i < 1000000; i++) {
-            int i1 = rand() % MAX_CELL_ID;
-            int i2 = rand() % MAX_CELL_ID;
-            
-            while (i1 == i2) i2 = rand() % MAX_CELL_ID;
-            
+            int i1 = (int)(random() % MAX_CELL_ID);
+            int i2 = (int)(random() % (MAX_CELL_ID-1));
+
+            if(i1 == i2) i2++;
+                        
             swap(the_solution, i1, i2, temperature);
             
             #pragma omp critical
@@ -233,23 +220,15 @@ void thread_run(double temperature, double cooling_rate) {
     last_temperature = temperature;
 }
 
-Connection* find_connection(int from_id, int to_id) {
-    long key = get_connection_hash(from_id, to_id);
-    
-    // Linear search in the connections array
-    for (long i = 0; i < connection_dict_count; i++) {
-        if (connection_by_cells_id_dict[i].from_id == from_id && 
-            connection_by_cells_id_dict[i].to_id == to_id) {
-            return &connection_by_cells_id_dict[i];
-        }
-    }
-    
-    return NULL;
+char* float_to_string(double value) {
+    static char buffer[64];
+    sprintf(buffer, "%.17g", value);
+    return buffer;
 }
 
 void write_solution_to_file(BestSolution *solution, double temperature) {
     char filename[256];
-    sprintf(filename, "%s/state/%08d_%011ld_%s.txt", WORK_DIR, solution->score, cnt, 
+    sprintf(filename, "./state/%08d_%011ld_%s.txt", solution->score, cnt, 
             float_to_string(temperature));
     
     FILE *file = fopen(filename, "w");
@@ -265,60 +244,47 @@ void write_solution_to_file(BestSolution *solution, double temperature) {
     fclose(file);
 }
 
-char* float_to_string(double value) {
-    static char buffer[64];
-    sprintf(buffer, "%.17g", value);
-    return buffer;
-}
-
-int main(int argc, char *argv[]) {
-    printf("Feed Forward algorithm starting...\n");
-    
-    read_connections();
-    read_cell_names();
-    
-    the_solution = create_random_solution_instance();
-    the_solution->instance_id = 1;
-    
-    double temperature = 50.0;
-    double cooling_rate = 0.000000001;
-    cnt = 0;
-    
+void perform_simanneal(double temperature, double cooling_rate, SolutionInstance* the_solution, bool log_to_file, bool write_updated_solution) {
     // Initialize random seed
     srand(time(NULL));
     
     // Simulated annealing loop
     while (temperature >= 0) {
-        thread_run(temperature, cooling_rate);
+        thread_run(temperature, cooling_rate, the_solution);
         
         temperature = last_temperature;
         
         if (best_solution.best != NULL) {
-            char timestamp[64];
-            time_t now = time(NULL);
-            strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
             
-            printf("%s\t%.17g\t%d\t%f\n", timestamp, temperature, best_solution.score, 
-                   (double)best_solution.score / TOTAL_CONNECTIONS);
-            
-            // Log to file
-            char log_filename[256];
-            sprintf(log_filename, "%s/log.txt", WORK_DIR);
-            FILE *log_file = fopen(log_filename, "a");
-            if (log_file) {
-                fprintf(log_file, "%s\t%.17g\t%d\t%f\n", timestamp, temperature, best_solution.score, 
-                        (double)best_solution.score / TOTAL_CONNECTIONS);
-                fclose(log_file);
+            if(log_to_file){
+                char timestamp[64];
+                time_t now = time(NULL);
+                strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+                printf("%s\t%.17g\t%d\t%f\n", timestamp, temperature, best_solution.score, 
+                    (double)best_solution.score / TOTAL_CONNECTIONS);
+                
+                // Log to file
+                char* log_filename = "./log.txt";
+                FILE *log_file = fopen(log_filename, "a");
+                if (log_file) {
+                    fprintf(log_file, "%s\t%.17g\t%d\t%f\n", timestamp, temperature, best_solution.score, 
+                            (double)best_solution.score / TOTAL_CONNECTIONS);
+                    fclose(log_file);
+                }
             }
             
-            // Write solution to file
-            write_solution_to_file(&best_solution, temperature);
+            if(write_updated_solution){
+                // Write solution to file
+                write_solution_to_file(&best_solution, temperature);
+            }
         }
     }
-    
-    // Cleanup
-    free_solution_instance(the_solution);
-    
+    if (best_solution.best != NULL) {
+        write_solution_to_file(&best_solution, temperature);
+    }
+}
+
+void cleanup(){
     for (int i = 0; i <= MAX_CELL_ID; i++) {
         if (outgoing_connections[i]) free(outgoing_connections[i]);
         if (incoming_connections[i]) free(incoming_connections[i]);
@@ -335,6 +301,29 @@ int main(int argc, char *argv[]) {
     free(connection_by_cells_id_dict);
     
     if (best_solution.best) free(best_solution.best);
+    
+}
+
+int main(int argc, char *argv[]) {
+    printf("Feed Forward algorithm starting...\n");
+    
+    char* filename = "./graph.csv";
+    read_connections(filename);
+
+    char* filename2 = "./cells.txt";
+    read_cell_names(filename2);
+    
+    SolutionInstance *the_solution = create_random_solution_instance();
+    the_solution->instance_id = 1;
+    
+    double temperature = 50.0;
+    double cooling_rate = 0.000000001;
+    cnt = 0;
+    
+    perform_simanneal(temperature, cooling_rate, the_solution, true, true);
+    
+    free_solution_instance(the_solution);
+    cleanup();
     
     return 0;
 }

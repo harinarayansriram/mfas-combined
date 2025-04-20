@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -68,6 +69,11 @@ double tmin, tmax;
 char *in_path, *out_path, *graph_path, *log_path;
 
 volatile sig_atomic_t interrupted = 0;
+
+// In case your RAND_MAX is 2**15 for whatever reason
+uint64_t random(){
+    return ((uint64_t) rand() << 0) ^ ((uint64_t) rand() << 15) ^ ((uint64_t) rand() << 30) ^ ((uint64_t) rand() << 45) ^ (((uint64_t) rand() & 0xf) << 60);
+}
 
 // Handle interruption signals
 void handle_signal(int sig) {
@@ -317,7 +323,7 @@ int compute_change(int* nodes, int* prev, int* cur, int* state) {
         }
     }
     
-    return (int)delta;
+    return delta;
 }
 
 // Function to make an impactful move
@@ -325,14 +331,14 @@ int move_if_impactful(int* state, int* a, int* b) {
     int n = node_count;
     
     // Select a random node
-    *a = rand() % n;
+    *a = (int)(random() % n);
     
     // Find a node that shares an edge with a
     while (out_adj_size[*a] == 0 && in_adj_size[*a] == 0) {
-        *a = rand() % n;
+        *a = (int)(random() % n);
     }
     
-    int b_i = rand() % (out_adj_size[*a] + in_adj_size[*a]);
+    int b_i = (int)(random() % (out_adj_size[*a] + in_adj_size[*a]));
     
     if (b_i < out_adj_size[*a]) {
         *b = out_adj[*a][b_i].node;
@@ -403,7 +409,7 @@ void random_toposort(int* state) {
         }
         
         // Pick a random node from the queue
-        int q_idx = rand() % queue_size;
+        int q_idx = (int)(random() % queue_size);
         int node = queue[q_idx];
         
         // Swap with last element and pop
@@ -500,9 +506,9 @@ void parallel_anneal(int id, double tmin, double tmax, int steps, int* state, Re
             memcpy(state, best_state, node_count * sizeof(int));
             e = best_energy;
         }
-        
+
         // Acceptance criterion
-        if (dE > 0 && exp(-dE / t) < (double)rand() / RAND_MAX && step % go_back_to_best_window != 0) {
+        if (dE > 0 && exp(-dE / t) < (double)random() / UINT64_MAX && step % go_back_to_best_window != 0) {
             // Restore previous state (swap back)
             int temp = state[a];
             state[a] = state[b];

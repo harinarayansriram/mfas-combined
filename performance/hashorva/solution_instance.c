@@ -1,18 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <math.h>
 #include <stdbool.h>
+#include <time.h>
 #include "solution_instance.h"
 
-// These would be defined in the main program, referenced here
-extern int MAX_CELL_ID;
-extern Connection *connection_by_cells_id_dict;
-extern long connection_dict_count;
-extern int **outgoing_connections;
-extern int *outgoing_connections_size;
-extern int **incoming_connections;
-extern int *incoming_connections_size;
+// In case your RAND_MAX is 2**15 for whatever reason
+uint64_t random(){
+    return ((uint64_t) rand() << 0) ^ ((uint64_t) rand() << 15) ^ ((uint64_t) rand() << 30) ^ ((uint64_t) rand() << 45) ^ (((uint64_t) rand() & 0xf) << 60);
+}
 
 SolutionInstance* create_solution_instance(int *solution, int solution_size, int forward_score) {
     SolutionInstance *instance = (SolutionInstance*)malloc(sizeof(SolutionInstance));
@@ -53,7 +51,7 @@ SolutionInstance* create_random_solution_instance() {
     // Randomize solution
     srand(time(NULL));
     for (int i = 0; i < MAX_CELL_ID; i++) {
-        int j = rand() % MAX_CELL_ID;
+        int j = random() % MAX_CELL_ID;
         int temp = solution[i];
         solution[i] = solution[j];
         solution[j] = temp;
@@ -322,7 +320,7 @@ void swap(SolutionInstance *instance, int i1, int i2, double temperature) {
     double acceptance_probability = exp((n_f - o_f) / temperature);
     
     // Decide whether to accept the swap
-    if (n_f >= o_f || acceptance_probability > ((double)rand() / RAND_MAX)) {
+    if (n_f >= o_f || acceptance_probability > ((double)random() / UINT64_MAX)) {
         instance->forward_score += n_f - o_f;
     } else {
         // Swap back if not accepted
@@ -380,7 +378,7 @@ SolutionInstance* read_solution_from_file(const char *filename, bool randomize) 
         // Randomize the solution
         srand(time(NULL));
         for (int i = 0; i < MAX_CELL_ID; i++) {
-            int j = rand() % MAX_CELL_ID;
+            int j = random() % MAX_CELL_ID;
             int temp = solution[i];
             solution[i] = solution[j];
             solution[j] = temp;
