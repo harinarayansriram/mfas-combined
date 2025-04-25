@@ -319,7 +319,7 @@ long long get_solution_score(const SolutionInstance* instance) {
     return instance->forward_score;
 }
 
-int get_solution_size(const SolutionInstance* instance) {
+long get_solution_size(const SolutionInstance* instance) {
     return instance->solution_size;
 }
 

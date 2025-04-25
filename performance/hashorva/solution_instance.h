@@ -33,10 +33,10 @@ long long calculate_forward_score(const SolutionInstance* instance, const Connec
 long long calculate_score_delta_on_swap(const SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2);
 bool apply_swap(SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2, double temperature, bool always_accept_better);
 bool update_best_solution(BestSolutionStorage* best_storage, const SolutionInstance* current_instance);
-void copy_solution(int* dest, const int* src, int size);
+void copy_solution(int* dest, const int* src, long size);
 
 long long get_solution_score(const SolutionInstance* instance);
-int get_solution_size(const SolutionInstance* instance);
+long get_solution_size(const SolutionInstance* instance);
 int* get_solution_array_ptr(SolutionInstance* instance);
 
 void init_best_solution_storage(BestSolutionStorage* storage, const SolutionInstance* instance);

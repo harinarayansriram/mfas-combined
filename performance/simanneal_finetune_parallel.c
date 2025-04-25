@@ -6,6 +6,7 @@
 #include <time.h>
 #include <stdbool.h>
 #include <omp.h> // For parallel execution
+#include <limits.h>
 
 #include "simanneal_finetune_parallel.h"
 

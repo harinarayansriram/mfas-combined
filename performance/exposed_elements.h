@@ -8,7 +8,7 @@ Connectome* load_connectome(const char* graph_filename);
 void free_connectome(Connectome* connectome);
 int get_connection_weight(const Connectome* connectome, int from_dense_idx, int to_dense_idx);
 long get_connectome_num_nodes(const Connectome* connectome);
-uint64_t* get_dense_idx_to_node_id_array_ptr(Connectome* connectome); // Allow Python to read the map
+uint64_t* get_dense_idx_to_node_id_array_ptr(const Connectome* connectome); // Allow Python to read the map
 
 // Solution Instance Management
 SolutionInstance* create_solution_instance(const Connectome* connectome, int* initial_solution_dense_array, bool calculate_initial_score);
