@@ -3,50 +3,45 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <math.h>
+#include "../connectome.h" // Include the shared connectome definition
 
+// Represents a potential solution (ordering of nodes)
 typedef struct {
-    int from_id;
-    int to_id;
-    int weight;
-} Connection;
-
-typedef struct {
-    int forward;
-    int backward;
-    double ratio;  // calculated: forward / (forward + backward)
-} Score;
-
-typedef struct {
-    int *best;
-    int score;
-    int instance_id;
-} BestSolution;
-
-typedef struct {
-    int *solution;
-    int *ix_lookup;
-    int forward_score;
-    int backward_score;
-    int instance_id;
+    int* solution;         // Array of node IDs in the current order. Size = connectome->max_node_id
+                           // Note: Nodes without connections might exist here, placed arbitrarily.
+                           // The score calculation implicitly ignores them.
+    int* node_to_position; // Map: node_to_position[node_id] = index in the solution array. Size = connectome->max_node_id
+    long long forward_score;   // Current forward score (sum of weights of forward edges)
+    int solution_size;     // Number of elements in solution array (connectome->max_node_id)
+    // int instance_id;    // Can keep if needed for tracking multiple instances
 } SolutionInstance;
 
-// These would be defined in the main program, referenced here
-int MAX_CELL_ID;
-Connection *connection_by_cells_id_dict;
-long connection_dict_count;
-int **outgoing_connections;
-int *outgoing_connections_size;
-int **incoming_connections;
-int *incoming_connections_size;
+// Structure to hold the best solution found so far
+typedef struct {
+    int *best_solution_array; // Copy of the best solution permutation found
+    long long best_score;       // The score of the best solution
+    int solution_size;        // Size of the best_solution_array
+    // int instance_id;       // ID of the instance that found this best solution
+} BestSolutionStorage;
 
-// Function prototypes
-SolutionInstance* create_solution_instance(int *solution, int solution_size, int forward_score);
-SolutionInstance* create_random_solution_instance();
-SolutionInstance* read_solution_from_file(const char *filename, bool randomize);
-void free_solution_instance(SolutionInstance *instance);
-Score calculate_score(SolutionInstance *instance);
-void swap(SolutionInstance *instance, int i1, int i2, double temperature);
-bool check_best_solution(BestSolution *best, SolutionInstance *instance);
-uint64_t random();
-long get_connection_hash(long from_id, long to_id);
+
+// Function Prototypes for solution instances
+SolutionInstance* create_solution_instance(const Connectome* connectome, int* initial_solution_array, bool calculate_initial_score);
+SolutionInstance* create_random_solution_instance(const Connectome* connectome);
+void free_solution_instance(SolutionInstance* instance);
+long long calculate_forward_score(const SolutionInstance* instance, const Connectome* connectome);
+long long calculate_score_delta_on_swap(const SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2);
+bool apply_swap(SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2, double temperature, bool always_accept_better);
+bool update_best_solution(BestSolutionStorage* best_storage, const SolutionInstance* current_instance);
+void copy_solution(int* dest, const int* src, int size);
+
+long long get_solution_score(const SolutionInstance* instance);
+int get_solution_size(const SolutionInstance* instance);
+int* get_solution_array_ptr(SolutionInstance* instance);
+
+void init_best_solution_storage(BestSolutionStorage* storage, const SolutionInstance* instance);
+long long get_best_solution_score(const BestSolutionStorage* storage);
+int* get_best_solution_array_ptr(BestSolutionStorage* storage);
+
+BestSolutionStorage* create_best_solution_storage();
+void free_best_solution_storage(BestSolutionStorage* storage);

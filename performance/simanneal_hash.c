@@ -973,7 +973,7 @@ _cffi_f_perform_simanneal(PyObject *self, PyObject *args)
 
 static uint64_t _cffi_d_random(void)
 {
-  return random();
+  return random_u64();
 }
 #ifndef PYPY_VERSION
 static PyObject *
@@ -984,7 +984,7 @@ _cffi_f_random(PyObject *self, PyObject *noarg)
 
   Py_BEGIN_ALLOW_THREADS
   _cffi_restore_errno();
-  { result = random(); }
+  { result = random_u64(); }
   _cffi_save_errno();
   Py_END_ALLOW_THREADS
 

@@ -3,327 +3,182 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
-#include <omp.h>
+#include <omp.h> // Keep if using OpenMP in Hashorva's original approach
 #include <stdbool.h>
+
+#include "../connectome.h"
 #include "solution_instance.h"
 
-#define MAX_CELL_ID 136648
-#define TOTAL_CONNECTIONS 41912141
+// --- Configuration Constants (formerly macros/globals) ---
+// const int THREAD_NUM = 4; // Example, maybe configure externally
+const long long ITERATIONS_PER_TEMP_CHECK = 1000000; // How often to check temp/log
 
-// Global variables
-char **cell_names;
-int *cell_names_r_keys;
-int *cell_names_r_values;
-int cell_names_count;
 
-// Connection *connection_by_cells_id_dict;
-long connection_dict_count;
+// --- Global for Best Solution ---
+// It's often better to pass this around, but a single global might be okay
+// if only one annealing process runs at a time.
+BestSolutionStorage overall_best_solution = {NULL, -1, 0}; // Initialize score to invalid
 
-int **outgoing_connections;
-int *outgoing_connections_size;
-int **incoming_connections;
-int *incoming_connections_size;
+// --- Forward Declarations (if needed, e.g., for thread_run if using) ---
+// void thread_run(...); // If using Hashorva's threading model
 
-long cnt;
-long last_change_step;
-long last_step;
-double last_temperature;
+// Simple SimAnneal implementation (can be adapted for threading later)
+void run_simanneal_parallel(
+    SolutionInstance* instance,      // Starting (and evolving) solution
+    const Connectome* connectome,
+    double initial_temperature,
+    double cooling_rate,
+    long long max_iterations,        // Total iterations limit
+    long long iterations_per_log,    // How often to print status
+    bool log_progress              // Flag to enable/disable console logging
+) {
+    if (!instance || !connectome) return;
 
-BestSolution best_solution;
+    double temperature = initial_temperature;
+    long long iteration = 0;
+    time_t last_log_time = time(NULL);
 
-void randomize_ints(int *list, int size) {
-    srand(time(NULL));
-    for (int i = 0; i < size; i++) {
-        int j = (int)(random() % size);
-        int temp = list[i];
-        list[i] = list[j];
-        list[j] = temp;
-    }
-}
+    // Initial check against the best solution found so far
+    update_best_solution(&overall_best_solution, instance);
 
-void randomize_ints_range(int *list, int min_ix, int max_ix) {
-    srand(time(NULL));
-    int range = max_ix - min_ix + 1;
-    
-    for (int i = min_ix; i <= max_ix; i++) {
-        int j = min_ix + (int)(random() % range);
-        int temp = list[i];
-        list[i] = list[j];
-        list[j] = temp;
-    }
-}
+    printf("Starting Simulated Annealing...\n");
+    printf("  Initial Temp: %.4f, Cooling Rate: %.10f, Max Iterations: %lld\n",
+           initial_temperature, cooling_rate, max_iterations);
+     printf("  Initial Score: %lld (Best known: %lld)\n", instance->forward_score, overall_best_solution.best_score);
 
-void read_connections(char* filename) {
-    printf("Reading connections...\n");
-    
-    // Allocate memory for connections
-    connection_by_cells_id_dict = (Connection*)malloc(sizeof(Connection) * (1 << 24));
-    
-    // Allocate memory for outgoing and incoming connections
-    outgoing_connections = (int**)calloc(MAX_CELL_ID + 1, sizeof(int*));
-    outgoing_connections_size = (int*)calloc(MAX_CELL_ID + 1, sizeof(int));
-    incoming_connections = (int**)calloc(MAX_CELL_ID + 1, sizeof(int*));
-    incoming_connections_size = (int*)calloc(MAX_CELL_ID + 1, sizeof(int));
-    
-    // Open file
-    // char filename[256];
-    // sprintf(filename, "%s/graph.csv", WORK_DIR);
-    FILE *file = fopen(filename, "r");
-    if (!file) {
-        perror("Failed to open graph file");
-        exit(1);
-    }
-    
-    // Read the header line
-    char line[1024];
-    fgets(line, sizeof(line), file);
-    
-    // First pass: count connections for each cell
-    while (fgets(line, sizeof(line), file)) {
-        int from_id, to_id, weight;
-        if (sscanf(line, "%d,%d,%d", &from_id, &to_id, &weight) != 3) continue;
-        
-        outgoing_connections_size[from_id]++;
-        incoming_connections_size[to_id]++;
-    }
-    
-    // Allocate memory for each cell's connections
-    for (int i = 0; i <= MAX_CELL_ID; i++) {
-        if (outgoing_connections_size[i] > 0) {
-            outgoing_connections[i] = (int*)malloc(sizeof(int) * outgoing_connections_size[i]);
-        }
-        if (incoming_connections_size[i] > 0) {
-            incoming_connections[i] = (int*)malloc(sizeof(int) * incoming_connections_size[i]);
-        }
-    }
-    
-    // Reset counts to use as indices
-    memset(outgoing_connections_size, 0, (MAX_CELL_ID + 1) * sizeof(int));
-    memset(incoming_connections_size, 0, (MAX_CELL_ID + 1) * sizeof(int));
-    
-    // Second pass: populate connections
-    rewind(file);
-    fgets(line, sizeof(line), file); // skip header
-    
-    while (fgets(line, sizeof(line), file)) {
-        int from_id, to_id, weight;
-        if (sscanf(line, "%d,%d,%d", &from_id, &to_id, &weight) != 3) continue;
-        
-        long key = get_connection_hash(from_id, to_id);
-        connection_by_cells_id_dict[connection_dict_count].from_id = from_id;
-        connection_by_cells_id_dict[connection_dict_count].to_id = to_id;
-        connection_by_cells_id_dict[connection_dict_count].weight = weight;
-        connection_dict_count++;
-        
-        outgoing_connections[from_id][outgoing_connections_size[from_id]++] = to_id;
-        incoming_connections[to_id][incoming_connections_size[to_id]++] = from_id;
-    }
-    
-    fclose(file);
-    printf("Connections loaded: %ld\n", connection_dict_count);
-}
-
-void read_cell_names(char* filename) {
-    printf("Reading cell names...\n");
-    
-    FILE *file = fopen(filename, "r");
-    if (!file) {
-        perror("Failed to open cells.txt");
-        exit(1);
-    }
-    
-    // Count lines
-    char line[1024];
-    int line_count = 0;
-    while (fgets(line, sizeof(line), file)) {
-        line_count++;
-    }
-    
-    cell_names = (char**)malloc(sizeof(char*) * (MAX_CELL_ID + 1));
-    cell_names_r_keys = (int*)malloc(sizeof(int) * line_count);
-    cell_names_r_values = (int*)malloc(sizeof(int) * line_count);
-    
-    // Read cell names
-    rewind(file);
-    fgets(line, sizeof(line), file); // skip header
-    
-    while (fgets(line, sizeof(line), file)) {
-        int id;
-        char name[256];
-        if (sscanf(line, "%d,%255[^\n]", &id, name) != 2) continue;
-        
-        cell_names[id] = strdup(name);
-        cell_names_r_keys[cell_names_count] = id;
-        cell_names_r_values[cell_names_count] = id;
-        cell_names_count++;
-    }
-    
-    fclose(file);
-    printf("Cell names loaded: %d\n", cell_names_count);
-}
-
-void convert_to_cell_names(char* source_filename, char* dest_filename) {
-    FILE *source_file = fopen(source_filename, "r");
-    if (!source_file) {
-        perror("Failed to open source file");
-        return;
-    }
-    
-    FILE *dest_file = fopen(dest_filename, "w");
-    if (!dest_file) {
-        perror("Failed to open destination file");
-        fclose(source_file);
-        return;
-    }
-    
-    fprintf(dest_file, "Node ID,Order\n");
-    
-    // Process each line
-    char line[1024];
-    int i = 0;
-    while (fgets(line, sizeof(line), source_file)) {
-        if (strlen(line) == 0) continue;
-        
-        int id;
-        if (sscanf(line, "%d", &id) != 1) continue;
-        
-        fprintf(dest_file, "%s,%d\n", cell_names[id], i);
-        i++;
-    }
-    
-    fclose(source_file);
-    fclose(dest_file);
-}
-
-void thread_run(double temperature, double cooling_rate, SolutionInstance* the_solution) {
-    #pragma omp parallel num_threads(THREAD_NUM)
-    {
-        #pragma omp for
-        for (int i = 0; i < 1000000; i++) {
-            int i1 = (int)(random() % MAX_CELL_ID);
-            int i2 = (int)(random() % (MAX_CELL_ID-1));
-
-            if(i1 == i2) i2++;
-                        
-            swap(the_solution, i1, i2, temperature);
-            
-            #pragma omp critical
-            {
-                check_best_solution(&best_solution, the_solution);
-                cnt++;
+    while (temperature > 1e-9 && (max_iterations <= 0 || iteration < max_iterations)) {
+        // --- Perform a batch of swaps ---
+        // Original Hashorva used threads here. Simplified sequential version:
+        for (long long i = 0; i < ITERATIONS_PER_TEMP_CHECK && (max_iterations <= 0 || iteration < max_iterations); ++i) {
+            // Select two distinct random positions
+            int pos1 = random_u64() % instance->solution_size;
+            int pos2 = random_u64() % instance->solution_size;
+            if (pos1 == pos2) {
+                pos2 = (pos1 + 1) % instance->solution_size; // Ensure different
             }
-            
-            temperature *= (1 - cooling_rate);
+
+            // Attempt the swap
+            bool accepted = apply_swap(instance, connectome, pos1, pos2, temperature, false);
+
+             // Check if the current state is the new best overall
+            if (accepted) { // Only need to check if score changed
+                 update_best_solution(&overall_best_solution, instance);
+            }
+
+            iteration++;
+        } // End batch of swaps
+
+        // --- Update temperature ---
+        temperature *= (1.0 - cooling_rate); // Geometric cooling
+
+        // --- Logging ---
+        if (log_progress && (iteration % iterations_per_log == 0 || (time(NULL) - last_log_time >= 10))) {
+             time_t now = time(NULL);
+             char timestamp[64];
+             strftime(timestamp, sizeof(timestamp), "%H:%M:%S", localtime(&now));
+
+             double progress_percent = (max_iterations > 0) ? (double)iteration * 100.0 / max_iterations : 0.0;
+             double ratio = (connectome->total_weight > 0) ? (double)overall_best_solution.best_score / connectome->total_weight : 0.0;
+
+             printf("%s [%lld / %lld, %.1f%%] Temp: %.4g, Current Score: %lld, Best Score: %lld (Ratio: %.6f)\n",
+                    timestamp, iteration, max_iterations > 0 ? max_iterations : -1, progress_percent,
+                    temperature, instance->forward_score, overall_best_solution.best_score, ratio);
+             last_log_time = now;
+
+             // Optional: Log to file (better handled by Python wrapper)
+             // FILE* log_file = fopen("simanneal_log.txt", "a");
+             // if (log_file) {
+             //     fprintf(log_file, "%ld\t%lld\t%.6g\t%lld\t%.6f\n", now, iteration, temperature, overall_best_solution.best_score, ratio);
+             //     fclose(log_file);
+             // }
+        }
+
+    } // End while temperature > threshold
+
+    printf("Simulated Annealing finished.\n");
+    printf("  Final Temperature: %.4g\n", temperature);
+    printf("  Total Iterations: %lld\n", iteration);
+    printf("  Best Score Achieved: %lld\n", overall_best_solution.best_score);
+
+    // Optional: Copy the best solution back into the instance if desired
+     if (overall_best_solution.best_solution_array && overall_best_solution.best_score > instance->forward_score) {
+         printf("  (Restoring best found solution into the instance)\n");
+         copy_solution(instance->solution, overall_best_solution.best_solution_array, instance->solution_size);
+         // Recalculate node_to_position map and score for the instance
+         for(int i=0; i < instance->solution_size; ++i) instance->node_to_position[instance->solution[i]] = i;
+         instance->forward_score = overall_best_solution.best_score; // Should match calculate_forward_score
+     }
+}
+
+
+// Example Main function (will be replaced by Python calls)
+int main_hashorva_example(int argc, char *argv[]) {
+    printf("Hashorva Feed Forward Refactored Example\n");
+    srand(time(NULL)); // Seed random number generator ONCE
+
+    // --- Configuration ---
+    const char* graph_filename = "./graph.csv"; // Input graph
+    double initial_temp = 50.0;
+    double cool_rate = 1e-9; // Very slow cooling
+    long long total_iterations = 50000000; // Example limit
+    long long log_interval = 5000000; // Log every 5M iterations
+
+    // --- Load Connectome ---
+    Connectome* connectome = load_connectome(graph_filename);
+    if (!connectome) {
+        return 1;
+    }
+
+    // --- Create Initial Solution ---
+    // SolutionInstance* current_solution = read_solution_from_file(...) // If reading start point
+    SolutionInstance* current_solution = create_random_solution_instance(connectome);
+    if (!current_solution) {
+        free_connectome(connectome);
+        return 1;
+    }
+
+    // Initialize best solution storage before starting
+    overall_best_solution.best_score = -1; // Reset best score
+
+    // --- Run Annealing ---
+    run_simanneal_parallel(
+        current_solution,
+        connectome,
+        initial_temp,
+        cool_rate,
+        total_iterations,
+        log_interval,
+        true // Enable logging
+    );
+
+    // --- Results ---
+    printf("\nFinal Best Score: %lld\n", overall_best_solution.best_score);
+
+    // Optional: Save the best solution (better handled by Python wrapper)
+    if (overall_best_solution.best_solution_array) {
+        printf("Saving best solution to best_solution_hashorva.txt\n");
+        FILE* outfile = fopen("best_solution_hashorva.txt", "w");
+        if (outfile) {
+             for (int i = 0; i < overall_best_solution.solution_size; ++i) {
+                 // Only write nodes that actually existed (e.g., based on degree)
+                 // Or just write all indices if the array represents the full range 0..max_id
+                 fprintf(outfile, "%d\n", overall_best_solution.best_solution_array[i]);
+             }
+             fclose(outfile);
+        } else {
+            perror("Failed to write best solution file");
         }
     }
-    
-    last_temperature = temperature;
-}
 
-char* float_to_string(double value) {
-    static char buffer[64];
-    sprintf(buffer, "%.17g", value);
-    return buffer;
-}
+    // --- Cleanup ---
+    free(overall_best_solution.best_solution_array);
+    free_solution_instance(current_solution);
+    free_connectome(connectome);
 
-void write_solution_to_file(BestSolution *solution, double temperature) {
-    char filename[256];
-    sprintf(filename, "./state/%08d_%011ld_%s.txt", solution->score, cnt, 
-            float_to_string(temperature));
-    
-    FILE *file = fopen(filename, "w");
-    if (!file) {
-        perror("Failed to open file for writing solution");
-        return;
-    }
-    
-    for (int i = 0; i < MAX_CELL_ID; i++) {
-        fprintf(file, "%d\n", solution->best[i]);
-    }
-    
-    fclose(file);
-}
-
-void perform_simanneal(double temperature, double cooling_rate, SolutionInstance* the_solution, bool log_to_file, bool write_updated_solution) {
-    // Initialize random seed
-    srand(time(NULL));
-    
-    // Simulated annealing loop
-    while (temperature >= 0) {
-        thread_run(temperature, cooling_rate, the_solution);
-        
-        temperature = last_temperature;
-        
-        if (best_solution.best != NULL) {
-            
-            if(log_to_file){
-                char timestamp[64];
-                time_t now = time(NULL);
-                strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-                printf("%s\t%.17g\t%d\t%f\n", timestamp, temperature, best_solution.score, 
-                    (double)best_solution.score / TOTAL_CONNECTIONS);
-                
-                // Log to file
-                char* log_filename = "./log.txt";
-                FILE *log_file = fopen(log_filename, "a");
-                if (log_file) {
-                    fprintf(log_file, "%s\t%.17g\t%d\t%f\n", timestamp, temperature, best_solution.score, 
-                            (double)best_solution.score / TOTAL_CONNECTIONS);
-                    fclose(log_file);
-                }
-            }
-            
-            if(write_updated_solution){
-                // Write solution to file
-                write_solution_to_file(&best_solution, temperature);
-            }
-        }
-    }
-    if (best_solution.best != NULL) {
-        write_solution_to_file(&best_solution, temperature);
-    }
-}
-
-void cleanup(){
-    for (int i = 0; i <= MAX_CELL_ID; i++) {
-        if (outgoing_connections[i]) free(outgoing_connections[i]);
-        if (incoming_connections[i]) free(incoming_connections[i]);
-        if (cell_names[i]) free(cell_names[i]);
-    }
-    
-    free(outgoing_connections);
-    free(outgoing_connections_size);
-    free(incoming_connections);
-    free(incoming_connections_size);
-    free(cell_names);
-    free(cell_names_r_keys);
-    free(cell_names_r_values);
-    free(connection_by_cells_id_dict);
-    
-    if (best_solution.best) free(best_solution.best);
-    
-}
-
-int main(int argc, char *argv[]) {
-    printf("Feed Forward algorithm starting...\n");
-    
-    char* filename = "./graph.csv";
-    read_connections(filename);
-
-    char* filename2 = "./cells.txt";
-    read_cell_names(filename2);
-    
-    SolutionInstance *the_solution = create_random_solution_instance();
-    the_solution->instance_id = 1;
-    
-    double temperature = 50.0;
-    double cooling_rate = 0.000000001;
-    cnt = 0;
-    
-    perform_simanneal(temperature, cooling_rate, the_solution, true, true);
-    
-    free_solution_instance(the_solution);
-    cleanup();
-    
+    printf("Cleanup complete. Exiting.\n");
     return 0;
 }
+
+// Note: The main function above is just for testing.
+// The actual entry points for CFFI would be functions like load_connectome,
+// create_random_solution_instance, run_simanneal_parallel, free_solution_instance, etc.

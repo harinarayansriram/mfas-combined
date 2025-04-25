@@ -1,837 +1,416 @@
 #include <stdio.h>
-#include <stdint.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
-#include <signal.h>
 #include <stdbool.h>
-#include <omp.h>
+#include <omp.h> // For parallel execution
 
-#define DEFAULT_GO_BACK_TO_BEST_WINDOW 100000000
-#define TOPOSHUFFLE_FREQUENCY 50000000
-#define DEFAULT_UPDATES 2500
-#define DEFAULT_TMIN 0.001
-#define DEFAULT_TMAX 0.1
-#define DEFAULT_VERBOSITY 10
-#define DEFAULT_ITERATIONS_TO_SAVE 15000000
+#include "simanneal_finetune_parallel.h"
 
-typedef struct {
-    int node;
-    int weight;
-} Edge;
+// --- Toposhuffle ---
+// Needs careful adaptation to use the Connectome and SolutionInstance structs
+void random_toposort(SolutionInstance* instance, const Connectome* connectome, int verbosity) {
+    long n = instance->solution_size;
+    if (n <= 0) return;
 
-typedef struct {
-    time_t start_time;
-    int iterations;
-    int cumulative_iterations;
-    int energy;
-} LogEntry;
-
-typedef struct {
-    int score;
-    int id;
-} Result;
-
-typedef struct {
-    char* in_file;
-    char* out_file;
-    char* log_file;
-    char* graph_file;
-    int max_iters;
-    bool infinite_iters;
-    int verbosity;
-    int updates;
-    int iters_per_thread;
-    int threads;
-    int go_back_to_best_window;
-    double tmin;
-    double tmax;
-} CLIArgs;
-
-Edge** out_adj;
-Edge** in_adj;
-int* out_adj_size;
-int* in_adj_size;
-
-long long** graph;
-int graph_size;
-int* node_to_sorted_idx;
-long long* sorted_idx_to_node;
-int node_count;
-
-int* state;
-LogEntry* logs;
-int log_count;
-
-int threads, iters_per_thread, max_iters, updates, verbosity, go_back_to_best_window;
-double tmin, tmax;
-char *in_path, *out_path, *graph_path, *log_path;
-
-volatile sig_atomic_t interrupted = 0;
-
-// In case your RAND_MAX is 2**15 for whatever reason
-uint64_t random(){
-    return ((uint64_t) rand() << 0) ^ ((uint64_t) rand() << 15) ^ ((uint64_t) rand() << 30) ^ ((uint64_t) rand() << 45) ^ (((uint64_t) rand() & 0xf) << 60);
-}
-
-// Handle interruption signals
-void handle_signal(int sig) {
-    interrupted = 1;
-}
-
-// Handle errors
-void handle_error(const char* message) {
-    fprintf(stderr, "Error: %s\n", message);
-    exit(EXIT_FAILURE);
-}
-
-// Parse command line arguments
-void parse_cli_args(int argc, char** argv, CLIArgs* args) {
-    // Set default values
-    args->verbosity = DEFAULT_VERBOSITY;
-    args->updates = DEFAULT_UPDATES;
-    args->go_back_to_best_window = DEFAULT_GO_BACK_TO_BEST_WINDOW;
-    args->tmin = DEFAULT_TMIN;
-    args->tmax = DEFAULT_TMAX;
-    args->infinite_iters = false;
-    args->max_iters = 0;
-    
-    // Parse arguments
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--in") == 0 && i + 1 < argc) {
-            args->in_file = argv[++i];
-        } else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
-            args->out_file = argv[++i];
-        } else if (strcmp(argv[i], "--graph") == 0 && i + 1 < argc) {
-            args->graph_file = argv[++i];
-        } else if (strcmp(argv[i], "--log") == 0 && i + 1 < argc) {
-            args->log_file = argv[++i];
-        } else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) {
-            args->threads = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--iters-per-thread") == 0 && i + 1 < argc) {
-            args->iters_per_thread = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--infinite-iters") == 0) {
-            args->infinite_iters = true;
-        } else if (strcmp(argv[i], "--max-iters") == 0 && i + 1 < argc) {
-            args->max_iters = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--verbosity") == 0 && i + 1 < argc) {
-            args->verbosity = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--updates") == 0 && i + 1 < argc) {
-            args->updates = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--go-back-to-best-window") == 0 && i + 1 < argc) {
-            args->go_back_to_best_window = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--tmin") == 0 && i + 1 < argc) {
-            args->tmin = atof(argv[++i]);
-        } else if (strcmp(argv[i], "--tmax") == 0 && i + 1 < argc) {
-            args->tmax = atof(argv[++i]);
-        }
-    }
-
-    // Validate required arguments
-    if (!args->in_file || !args->out_file || !args->graph_file || args->threads == 0 || args->iters_per_thread == 0) {
-        printf("One or more required flags not provided\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Check for mutually exclusive flags
-    if (!args->infinite_iters && args->max_iters == 0) {
-        printf("Error: --infinite-iters or --max-iters must be specified\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (args->infinite_iters && args->max_iters != 0) {
-        printf("Error: --infinite-iters and --max-iters are mutually exclusive\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Validate temperature values
-    if (args->tmin == 0.0) {
-        printf("tmin must be non-zero\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (args->tmin > args->tmax) {
-        printf("tmin must be less than tmax\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Validate verbosity
-    if (args->verbosity < 0 || args->verbosity > 10) {
-        printf("verbosity must be between 0 and 10\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (args->verbosity > 2 && args->verbosity != 10) {
-        printf("verbosity must be 0, 1, 2, or 10; high verbosity is 10\n");
-        exit(EXIT_FAILURE);
-    }
-}
-
-// Function to read CSV files
-char*** read_csv(const char* file, int* rows, int* cols) {
-    FILE* fp = fopen(file, "r");
-    if (!fp) {
-        handle_error("Failed to open file");
-    }
-
-    // Count rows and estimate columns
-    char buffer[4096];
-    *rows = 0;
-    *cols = 0;
-    
-    if (fgets(buffer, sizeof(buffer), fp)) {
-        (*rows)++;
-        char* token = strtok(buffer, ",");
-        while (token) {
-            (*cols)++;
-            token = strtok(NULL, ",");
-        }
-    }
-    
-    while (fgets(buffer, sizeof(buffer), fp)) {
-        (*rows)++;
-    }
-    
-    // Allocate memory for data
-    char*** data = (char***)malloc(*rows * sizeof(char**));
-    for (int i = 0; i < *rows; i++) {
-        data[i] = (char**)malloc(*cols * sizeof(char*));
-        for (int j = 0; j < *cols; j++) {
-            data[i][j] = (char*)malloc(256 * sizeof(char));
-        }
-    }
-    
-    // Read data
-    rewind(fp);
-    for (int i = 0; i < *rows; i++) {
-        if (!fgets(buffer, sizeof(buffer), fp)) {
-            break;
-        }
-        buffer[strcspn(buffer, "\r\n")] = 0; // Remove newline
-        
-        char* token = strtok(buffer, ",");
-        int j = 0;
-        while (token && j < *cols) {
-            strcpy(data[i][j], token);
-            token = strtok(NULL, ",");
-            j++;
-        }
-    }
-    
-    fclose(fp);
-    return data;
-}
-
-// Function to write results to CSV
-void write_to_csv(const char* file, int* state, long long* sorted_idx_to_node, int size) {
-    FILE* fp = fopen(file, "w");
-    if (!fp) {
-        handle_error("Failed to open output file");
-    }
-    
-    // Write header
-    fprintf(fp, "Node ID,Order\n");
-    
-    // Write data
-    for (int i = 0; i < size; i++) {
-        fprintf(fp, "%ld,%d\n", sorted_idx_to_node[i], state[i]);
-    }
-    
-    fclose(fp);
-}
-
-// Function to write logs to CSV
-void write_logs(const char* file, LogEntry* logs, int log_count) {
-    FILE* fp = fopen(file, "w");
-    if (!fp) {
-        handle_error("Failed to open log file");
-    }
-    
-    // Write header
-    fprintf(fp, "Start Time,Iterations,Cumulative Iterations,Energy\n");
-    
-    // Write data
-    for (int i = 0; i < log_count; i++) {
-        fprintf(fp, "%ld,%d,%d,%d\n", logs[i].start_time, logs[i].iterations, logs[i].cumulative_iterations, logs[i].energy);
-    }
-    
-    fclose(fp);
-}
-
-// Function to calculate energy
-int energy(int* state) {
-    long long total = 0;
-    for (int i = 0; i < graph_size; i++) {
-        long long source = graph[i][0];
-        long long target = graph[i][1];
-        long long weight = graph[i][2];
-        
-        if (state[node_to_sorted_idx[source]] < state[node_to_sorted_idx[target]]) {
-            total += weight;
-        }
-    }
-    return (int)(-total);
-}
-
-// Function to compute change in energy
-int compute_change(int* nodes, int* prev, int* cur, int* state) {
-    int delta = 0;
-    int a = nodes[0];
-    int b = nodes[1];
-    
-    for (int i = 0; i < 2; i++) {
-        int node = nodes[i];
-        int prev_pos = prev[i];
-        int cur_pos = cur[i];
-        
-        for (int j = 0; j < out_adj_size[node]; j++) {
-            int next_node = out_adj[node][j].node;
-            int weight = out_adj[node][j].weight;
-            int next_pos = state[next_node];
-            
-            if (next_node == a) {
-                next_pos = cur[0];
-            }
-            
-            if (next_node == b) {
-                next_pos = cur[1];
-            }
-            
-            if (prev_pos < state[next_node]) {
-                delta -= weight;
-            }
-            if (cur_pos < next_pos) {
-                delta += weight;
-            }
-        }
-        
-        for (int j = 0; j < in_adj_size[node]; j++) {
-            int prev_node = in_adj[node][j].node;
-            int weight = in_adj[node][j].weight;
-            
-            if (prev_node == a || prev_node == b) {
-                continue;
-            }
-            
-            if (state[prev_node] < prev_pos) {
-                delta -= weight;
-            }
-            if (state[prev_node] < cur_pos) {
-                delta += weight;
-            }
-        }
-    }
-    
-    return delta;
-}
-
-// Function to make an impactful move
-int move_if_impactful(int* state, int* a, int* b) {
-    int n = node_count;
-    
-    // Select a random node
-    *a = (int)(random() % n);
-    
-    // Find a node that shares an edge with a
-    while (out_adj_size[*a] == 0 && in_adj_size[*a] == 0) {
-        *a = (int)(random() % n);
-    }
-    
-    int b_i = (int)(random() % (out_adj_size[*a] + in_adj_size[*a]));
-    
-    if (b_i < out_adj_size[*a]) {
-        *b = out_adj[*a][b_i].node;
-    } else {
-        b_i -= out_adj_size[*a];
-        *b = in_adj[*a][b_i].node;
-    }
-    
-    // Capture current and proposed orders
-    int current_order[2] = {state[*a], state[*b]};
-    int proposed_order[2] = {current_order[1], current_order[0]};
-    
-    // Compute energy change
-    int indices[2] = {*a, *b};
-    int energy_delta = compute_change(indices, current_order, proposed_order, state);
-    
-    // Apply the swap
-    int temp = state[*a];
-    state[*a] = state[*b];
-    state[*b] = temp;
-    
-    return -energy_delta;
-}
-
-// Function to perform random topological sort
-void random_toposort(int* state) {
-    int n = node_count;
-    int* ordering = (int*)malloc(n * sizeof(int));
-    Edge*** cur_out_adj = (Edge***)malloc(n * sizeof(Edge**));
-    int* cur_out_adj_size = (int*)calloc(n, sizeof(int));
+    // Data structures for Kahn's algorithm
+    int* indegree = (int*)calloc(n, sizeof(int)); // In-degree based on *current* forward edges
     int* queue = (int*)malloc(n * sizeof(int));
-    int queue_size = 0;
-    int ordering_size = 0;
-    int* indeg = (int*)calloc(n, sizeof(int));
-    
-    // Initialize current adjacency lists
-    for (int i = 0; i < n; i++) {
-        cur_out_adj[i] = (Edge**)malloc(out_adj_size[i] * sizeof(Edge*));
-        cur_out_adj_size[i] = 0;
-    }
-    
-    // Build current graph based on current state
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < out_adj_size[i]; j++) {
-            int neighbor = out_adj[i][j].node;
-            if (state[i] < state[neighbor]) {
-                cur_out_adj[i][cur_out_adj_size[i]] = &out_adj[i][j];
-                cur_out_adj_size[i]++;
-                indeg[neighbor]++;
-            }
-        }
-    }
-    
-    // Find nodes with no incoming edges
-    for (int i = 0; i < n; i++) {
-        if (indeg[i] == 0) {
-            queue[queue_size++] = i;
-        }
-    }
-    
-    int tot_weight = 0;
-    
-    // Random topological sort
-    while (ordering_size < n) {
-        if (queue_size == 0) {
-            printf("Error: Graph has a cycle\n");
-            break;
-        }
-        
-        // Pick a random node from the queue
-        int q_idx = (int)(random() % queue_size);
-        int node = queue[q_idx];
-        
-        // Swap with last element and pop
-        queue[q_idx] = queue[queue_size - 1];
-        queue_size--;
-        
-        // Add to ordering
-        ordering[ordering_size++] = node;
-        
-        // Process outgoing edges
-        for (int i = 0; i < cur_out_adj_size[node]; i++) {
-            int neighbor = cur_out_adj[node][i]->node;
-            tot_weight += cur_out_adj[node][i]->weight;
-            indeg[neighbor]--;
-            if (indeg[neighbor] == 0) {
-                queue[queue_size++] = neighbor;
-            }
-        }
-    }
-    
-    if (verbosity >= 2) {
-        printf("Weight of topsort %d\n", tot_weight);
-    }
-    
-    // Update state based on new ordering
-    for (int i = 0; i < n; i++) {
-        state[ordering[i]] = i;
-    }
-    
-    // Free allocated memory
-    free(ordering);
-    for (int i = 0; i < n; i++) {
-        free(cur_out_adj[i]);
-    }
-    free(cur_out_adj);
-    free(cur_out_adj_size);
-    free(queue);
-    free(indeg);
-}
+    int queue_head = 0, queue_tail = 0;
+    int* new_ordering = (int*)malloc(n * sizeof(int)); // Stores the dense indices in topo order
+    int ordering_idx = 0;
+    long long current_forward_weight = 0; // For verification/logging
 
-// Function to perform parallel annealing
-void parallel_anneal(int id, double tmin, double tmax, int steps, int* state, Result* results) {
-    int step = 0;
-    double t = tmax;
-    int e = energy(state);
-    
-    if (tmin <= 0.0) {
-        printf("Tmin needs to be nonzero\n");
-        results[id].score = e;
-        results[id].id = id;
+    if (!indegree || !queue || !new_ordering) {
+        perror("Failed to allocate memory for toposort");
+        free(indegree); free(queue); free(new_ordering);
         return;
     }
-    
-    double tfactor = -log(tmax / tmin);
-    
-    // Create copies of state
-    int* prev_state = (int*)malloc(node_count * sizeof(int));
-    memcpy(prev_state, state, node_count * sizeof(int));
-    int prev_energy = e;
-    
-    int* best_state = (int*)malloc(node_count * sizeof(int));
-    memcpy(best_state, state, node_count * sizeof(int));
-    int best_energy = e;
-    
-    int trials = 0, accepts = 0, improves = 0;
-    
-    int update_wavelength;
-    if (updates > 1) {
-        update_wavelength = steps / updates;
-    } else {
-        update_wavelength = -1;
-    }
-    
-    if (verbosity == 10) {
-        printf("Steps: %d Temperature: %f Energy: %d\n", step, t, e);
-    }
-    
-    for (step = 0; step < steps && !interrupted; step++) {
-        // Update temperature
-        if (tmax - tmin == 0.0) {
-            t = tmax;
-        } else {
-            t = tmax * exp(tfactor * (double)step / (double)steps);
-        }
-        
-        // Make a move
-        int a, b;
-        int dE = move_if_impactful(state, &a, &b);
-        e += dE;
-        trials++;
-        
-        // Periodically go back to best state
-        if (step % go_back_to_best_window == 0) {
-            memcpy(state, best_state, node_count * sizeof(int));
-            e = best_energy;
-        }
 
-        // Acceptance criterion
-        if (dE > 0 && exp(-dE / t) < (double)random() / UINT64_MAX && step % go_back_to_best_window != 0) {
-            // Restore previous state (swap back)
-            int temp = state[a];
-            state[a] = state[b];
-            state[b] = temp;
-            e = prev_energy;
-        } else {
-            accepts++;
-            if (dE < 0) {
-                improves++;
+    // Calculate in-degrees based *only* on forward edges in the current solution
+    for (int i = 0; i < n; ++i) {
+        int u_dense_idx = instance->solution[i]; // Dense index at position i
+        if (u_dense_idx < 0 || u_dense_idx >= connectome->num_nodes || !connectome->outgoing[u_dense_idx]) continue;
+    
+        for (int j = 0; j < connectome->out_degree[u_dense_idx]; ++j) {
+            int v_dense_idx = connectome->outgoing[u_dense_idx][j].neighbor_dense_idx;
+            if (v_dense_idx >= n) continue; // Skip nodes outside range
+            // int v_pos = instance->node_to_position[v];
+            int v_pos = instance->node_to_position[v_dense_idx];
+
+            if (v_pos > i) { // If u -> v is a forward edge
+                indegree[v_dense_idx]++; // Increment in-degree of the target node v
+                current_forward_weight += connectome->outgoing[u_dense_idx][j].weight;
             }
-            
-            if (go_back_to_best_window != 0) {
-                int temp = prev_state[a];
-                prev_state[a] = prev_state[b];
-                prev_state[b] = temp;
-            } else {
-                memcpy(prev_state, state, node_count * sizeof(int));
-            }
-            
-            prev_energy = e;
-            
-            if (e < best_energy) {
-                best_energy = e;
-                memcpy(best_state, state, node_count * sizeof(int));
-            }
-        }
-        
-        // Periodic toposhuffle
-        if (TOPOSHUFFLE_FREQUENCY > 0 && step % TOPOSHUFFLE_FREQUENCY == 0) {
-            if (verbosity >= 2) {
-                printf("Toposorting during annealing\n");
-            }
-            random_toposort(state);
-        }
-        
-        // Print updates
-        if (updates > 1 && update_wavelength > 0 && step % update_wavelength == 0) {
-            float accept_percent = (float)accepts / trials * 100;
-            float improve_percent = (float)improves / trials * 100;
-            printf("Steps: %d\tTemperature: %f\tEnergy: %d\tAccept: %.5f%%\tImprove: %.5f%%\n", 
-                   step, t, e, accept_percent, improve_percent);
-            trials = 0;
-            accepts = 0;
-            improves = 0;
         }
     }
-    
-    // Use best state
-    memcpy(state, best_state, node_count * sizeof(int));
-    
-    if (verbosity >= 1) {
-        printf("\nBest energy: %d\n", best_energy);
+     if (verbosity >= 10) printf("Toposshuffle: Initial forward weight calculated: %lld\n", current_forward_weight);
+
+
+    // Initialize queue with nodes having zero in-degree (in the forward graph)
+    for (int node_id = 0; node_id < n; ++node_id) {
+         // Only consider nodes that might actually be part of the graph
+        if (node_id >= 0 && node_id < connectome->num_nodes && (connectome->out_degree[node_id] > 0 || connectome->in_degree[node_id] > 0)) {
+            if (indegree[node_id] == 0) {
+                queue[queue_tail++] = node_id;
+            }
+         } else {
+            // Ensure nodes without connections but within the dense index range are added
+            if (node_id >= 0 && node_id < connectome->num_nodes && indegree[node_id] == 0) {
+                 queue[queue_tail++] = node_id;
+             }
+         }
     }
-    
-    results[id].score = best_energy;
-    results[id].id = id;
-    
-    // Free allocated memory
-    free(prev_state);
-    free(best_state);
+
+    // Process the queue (Kahn's algorithm)
+    while (queue_head < queue_tail) {
+        // Randomly pick from the current queue elements (nodes ready to be placed)
+        int rand_idx_in_queue = queue_head + (random_u64() % (queue_tail - queue_head));
+        int u_dense_idx = queue[rand_idx_in_queue];
+        // Swap with head to 'remove' it easily
+        queue[rand_idx_in_queue] = queue[queue_head];
+        queue_head++;
+
+        new_ordering[ordering_idx++] = u_dense_idx; // Add node to the new topological order
+
+        // Process neighbors only considering forward edges
+        int u_pos = instance->node_to_position[u_dense_idx]; // Original position
+        if (u_dense_idx < 0 || u_dense_idx >= connectome->num_nodes || !connectome->outgoing[u_dense_idx]) continue;
+        for (int j = 0; j < connectome->out_degree[u_dense_idx]; ++j) {
+            int v_dense_idx = connectome->outgoing[u_dense_idx][j].neighbor_dense_idx;
+            if (v_dense_idx < 0 || v_dense_idx >= n) continue;
+            int v_pos = instance->node_to_position[v_dense_idx];
+
+            if (v_pos > u_pos) { // If u -> v was a forward edge
+                indegree[v_dense_idx]--;
+                if (indegree[v_dense_idx] == 0) {
+                    queue[queue_tail++] = v_dense_idx; // Add neighbor to queue if ready
+                }
+            }
+        }
+    }
+
+    // Check for cycles and handle unconnected nodes
+    if (ordering_idx < n) {
+        fprintf(stderr, "Warning: Cycle detected during topological sort or unconnected nodes missed? Processed %d / %d nodes.\n", ordering_idx, n);
+        // Fill remaining spots in new_ordering with unprocessed nodes if any
+        // This part needs careful handling depending on how cycles should be treated.
+        // For now, we might end up with an incomplete or invalid ordering.
+        // A simple fallback: Keep the original ordering if a cycle is detected.
+         if (verbosity >= 1) printf("Toposort failed (cycle?), keeping original order.\n");
+         free(indegree); free(queue); free(new_ordering);
+         return; // Do not modify the instance state
+    }
+
+     if (verbosity >= 2) printf("Toposort successful. Updating instance state.\n");
+
+    // Update the SolutionInstance with the new topological order
+    copy_solution(instance->solution, new_ordering, n);
+    for (int i = 0; i < n; ++i) {
+        instance->node_to_position[instance->solution[i]] = i;
+    }
+    // Recalculate the forward score for consistency
+    instance->forward_score = calculate_forward_score(instance, connectome);
+
+    if (verbosity >= 10) printf("Toposort: New forward score: %lld\n", instance->forward_score);
+
+
+    free(indegree);
+    free(queue);
+    free(new_ordering);
 }
 
-int main(int argc, char** argv) {
-    // Parse command line arguments
-    CLIArgs args = {0};
-    parse_cli_args(argc, argv, &args);
-    
-    // Set global variables from args
-    threads = args.threads;
-    iters_per_thread = args.iters_per_thread;
-    if (args.infinite_iters) {
-        max_iters = -1;
+
+// --- Bader's Annealing Logic (Adapted for Parallel Execution) ---
+void run_simanneal_parallel_with_toposhuffle(
+    SolutionInstance* instance, // Starting instance (will be updated with best result)
+    const Connectome* connectome,
+    int num_threads,
+    long long iterations_per_thread,
+    int updates_per_thread,
+    double tmin,
+    double tmax,
+    int go_back_to_best_window,
+    int toposhuffle_frequency,
+    int verbosity,
+    BestSolutionStorage* global_best // Shared tracker for the overall best solution
+) {
+    if (!instance || !connectome || num_threads <= 0 || iterations_per_thread <= 0) {
+        fprintf(stderr, "Invalid arguments for parallel annealing.\n");
+        return;
+    }
+    if (tmin <= 0 || tmax <= 0 || tmin > tmax) {
+        fprintf(stderr, "Invalid temperature range (tmin=%.4g, tmax=%.4g).\n", tmin, tmax);
+        return;
+    }
+
+    printf("Starting Bader Parallel Annealing...\n");
+    printf("  Threads: %d, Iter/Thread: %lld, T: [%.4g, %.4g]\n", num_threads, iterations_per_thread, tmin, tmax);
+    printf("  GoBackWindow: %d, TopoShuffleFreq: %d\n", go_back_to_best_window, toposhuffle_frequency);
+
+    // Array to hold thread-local best scores found during this run
+    long long* thread_best_scores = (long long*)malloc(num_threads * sizeof(long long));
+    int best_thread_index = -1; // Index of the thread that ended with the best score
+
+    #pragma omp parallel num_threads(num_threads)
+    {
+        int thread_id = omp_get_thread_num();
+        // Ensure each thread has its own random seed (important!)
+        unsigned int seed = (unsigned int) ( (time(NULL) ^ (thread_id << 16) ^ random_u64()) & UINT_MAX);
+        srand(seed); // Seed thread-local random state if rand() is used directly, or use thread-safe RNG
+
+        // Create a thread-local copy of the solution instance
+        SolutionInstance* local_instance = create_solution_instance(connectome, instance->solution, false); // Don't recalc score yet
+        if (!local_instance) {
+             fprintf(stderr, "Thread %d: Failed to create local instance!\n", thread_id);
+             #pragma omp atomic write
+             thread_best_scores[thread_id] = -1; // Indicate error
+        } else {
+            local_instance->forward_score = instance->forward_score; // Copy initial score
+
+            // Thread-local best tracking
+            BestSolutionStorage thread_best = {NULL, local_instance->forward_score, local_instance->solution_size};
+            thread_best.best_solution_array = (int*)malloc(thread_best.solution_size * sizeof(int));
+            if(thread_best.best_solution_array) {
+                copy_solution(thread_best.best_solution_array, local_instance->solution, thread_best.solution_size);
+            } else {
+                perror("Thread failed to allocate local best storage");
+                // Continue without local best tracking? Risky.
+            }
+
+
+            double current_temp = tmax;
+            double tfactor = (tmax > tmin) ? -log(tmax / tmin) : 0.0; // Avoid log(1)
+            long long trials = 0, accepts = 0, improves = 0;
+            long long update_interval = (updates_per_thread > 0) ? (iterations_per_thread / updates_per_thread) : -1;
+
+            if (verbosity >= 2) printf("Thread %d: Starting annealing loop. Initial score: %lld\n", thread_id, local_instance->forward_score);
+
+            for (long long step = 0; step < iterations_per_thread; ++step) {
+                // Update temperature (linear interpolation in log space)
+                 if (tfactor != 0.0) {
+                     current_temp = tmax * exp(tfactor * (double)step / (double)iterations_per_thread);
+                 } else {
+                     current_temp = tmax; // Constant temperature if tmin == tmax
+                 }
+                 current_temp = fmax(current_temp, tmin); // Ensure temp doesn't go below tmin
+
+
+                // Periodically go back to thread's best known state
+                if (go_back_to_best_window > 0 && step > 0 && step % go_back_to_best_window == 0) {
+                    if (thread_best.best_solution_array && thread_best.best_score > local_instance->forward_score) {
+                         if (verbosity >= 10) printf("Thread %d Step %lld: Going back to best (Score %lld)\n", thread_id, step, thread_best.best_score);
+                         copy_solution(local_instance->solution, thread_best.best_solution_array, local_instance->solution_size);
+                         // Update pos map and score
+                         for(int i=0; i < local_instance->solution_size; ++i) local_instance->node_to_position[local_instance->solution[i]] = i;
+                         local_instance->forward_score = thread_best.best_score;
+                    }
+                }
+
+                 // Periodically perform topological shuffle
+                 if (toposhuffle_frequency > 0 && step > 0 && step % toposhuffle_frequency == 0) {
+                     if (verbosity >= 2) printf("Thread %d Step %lld: Performing toposort shuffle\n", thread_id, step);
+                     random_toposort(local_instance, connectome, verbosity); // Modifies local_instance in place
+                     // Update thread's best if toposort improved it
+                      if (thread_best.best_solution_array) {
+                          update_best_solution(&thread_best, local_instance);
+                      }
+                     // Also check against global best
+                     #pragma omp critical (GlobalBestUpdate)
+                     {
+                         update_best_solution(global_best, local_instance);
+                     }
+                 }
+
+                // --- Select move
+                long pos1 = random_u64() % local_instance->solution_size;
+                long pos2 = random_u64() % local_instance->solution_size;
+                if (pos1 == pos2) pos2 = (pos1 + 1) % local_instance->solution_size;
+
+                trials++;
+                long long dE = calculate_score_delta_on_swap(local_instance, connectome, pos1, pos2);
+
+                // --- Acceptance Criteria ---
+                bool accepted = false;
+                 if (dE > 0) { // Improvement
+                     accepted = true;
+                     improves++;
+                 } else if (current_temp > 1e-9) { // Avoid issues with zero temp
+                     double prob = exp((double)dE / current_temp);
+                     if (prob > random_double()) {
+                         accepted = true;
+                     }
+                 }
+
+                 if (accepted) {
+                     accepts++;
+                     // Apply swap modifies local_instance score and arrays
+                      apply_swap(local_instance, connectome, pos1, pos2, current_temp, true); // Use helper, always accept 0 delta here
+
+                     // Update thread-local best
+                      if (thread_best.best_solution_array) {
+                         update_best_solution(&thread_best, local_instance);
+                      }
+
+                     // Update global best (needs synchronization)
+                     #pragma omp critical (GlobalBestUpdate)
+                     {
+                         update_best_solution(global_best, local_instance);
+                     }
+                 }
+
+                 // --- Logging within thread ---
+                 if (verbosity == 10 && update_interval > 0 && step > 0 && step % update_interval == 0) {
+                     float accept_percent = (trials > 0) ? (float)accepts * 100.0f / trials : 0.0f;
+                     float improve_percent = (trials > 0) ? (float)improves * 100.0f / trials : 0.0f;
+                     printf("  T%d [%lld/%lld] T:%.3g E:%lld BestE:%lld Acc:%.2f%% Imp:%.2f%%\n",
+                            thread_id, step, iterations_per_thread, current_temp,
+                            local_instance->forward_score, thread_best.best_score, accept_percent, improve_percent);
+                     trials = 0; accepts = 0; improves = 0; // Reset counters for next interval
+                 }
+
+            } // End annealing loop for thread
+
+            // Store the final score achieved by this thread
+            #pragma omp atomic write
+            thread_best_scores[thread_id] = thread_best.best_score;
+
+            // Copy the best solution found by THIS thread back to its local_instance
+            if (thread_best.best_solution_array && thread_best.best_score > local_instance->forward_score) {
+                 copy_solution(local_instance->solution, thread_best.best_solution_array, local_instance->solution_size);
+                 for(int i=0; i < local_instance->solution_size; ++i) local_instance->node_to_position[local_instance->solution[i]] = i;
+                 local_instance->forward_score = thread_best.best_score;
+            }
+
+             if (verbosity >= 1) printf("Thread %d finished. Final score: %lld (Best found by thread: %lld)\n", thread_id, local_instance->forward_score, thread_best.best_score);
+
+             // --- Critical section to determine which thread's final state is best ---
+             // This is slightly complex: we want the *state* of the thread that achieved the overall best score *at the end*.
+             // It's simpler to just rely on the global_best structure updated during the run.
+             // Let's find which thread ended with the highest score among all threads.
+             #pragma omp critical(FindBestThread)
+             {
+                if (best_thread_index == -1 || thread_best_scores[thread_id] > thread_best_scores[best_thread_index]) {
+                    best_thread_index = thread_id;
+                }
+             }
+
+             // Cleanup thread-local resources
+             free(thread_best.best_solution_array);
+             // Keep local_instance alive temporarily until the best one is chosen below
+             //#pragma omp barrier // Ensure all threads reach here before proceeding
+             // If we decide to copy the state from the best thread:
+             // This needs careful synchronization or post-processing outside the parallel region.
+
+
+        } // End check if local_instance was created
+    } // End parallel region
+
+    // --- Post-processing ---
+    // At this point, global_best holds the best solution found across all threads during the run.
+    // Update the original input 'instance' with this global best.
+    if (global_best->best_solution_array && global_best->best_score > instance->forward_score) {
+         printf("Updating input instance with overall best score: %lld (was %lld)\n", global_best->best_score, instance->forward_score);
+         copy_solution(instance->solution, global_best->best_solution_array, instance->solution_size);
+         // Update position map and score
+         for(int i=0; i < instance->solution_size; ++i) instance->node_to_position[instance->solution[i]] = i;
+         instance->forward_score = global_best->best_score;
     } else {
-        max_iters = args.max_iters;
+        printf("Parallel run did not improve upon the initial global best score (%lld).\n", global_best->best_score);
     }
-    go_back_to_best_window = args.go_back_to_best_window;
-    tmin = args.tmin;
-    tmax = args.tmax;
-    verbosity = args.verbosity;
-    
-    if (verbosity == 10) {
-        updates = args.updates;
-    } else {
-        updates = 0;
-    }
-    
-    in_path = args.in_file;
-    out_path = args.out_file;
-    graph_path = args.graph_file;
-    
-    if (args.log_file) {
-        log_path = args.log_file;
-    } else {
-        log_path = (char*)malloc(strlen(in_path) + 9);
-        sprintf(log_path, "%s_log.csv", in_path);
-    }
-    
-    // Initialize random seed
-    srand(time(NULL));
-    
-    // Read graph file
-    int rows, cols;
-    char*** graph_records = read_csv(graph_path, &rows, &cols);
-    
-    // Initialize node set
-    int max_node_id = 0;
-    for (int i = 1; i < rows; i++) {
-        long long source_id = atoll(graph_records[i][0]);
-        long long target_id = atoll(graph_records[i][1]);
-        
-        if (source_id > max_node_id) max_node_id = source_id;
-        if (target_id > max_node_id) max_node_id = target_id;
-    }
-    
-    // Allocate memory for graph
-    graph_size = rows - 1;  // Excluding header row
-    graph = (long long**)malloc(graph_size * sizeof(long long*));
-    for (int i = 0; i < graph_size; i++) {
-        graph[i] = (long long*)malloc(3 * sizeof(long long));
-    }
-    
-    // Create temporary hash set for nodes
-    int* node_exists = (int*)calloc(max_node_id + 1, sizeof(int));
-    
-    // Process graph records
-    for (int i = 1; i < rows; i++) {
-        long long source_id = atoll(graph_records[i][0]);
-        long long target_id = atoll(graph_records[i][1]);
-        long long edge_weight = atoi(graph_records[i][2]);
-        
-        graph[i - 1][0] = source_id;
-        graph[i - 1][1] = target_id;
-        graph[i - 1][2] = edge_weight;
-        
-        node_exists[source_id] = 1;
-        node_exists[target_id] = 1;
-    }
-    
-    // Count unique nodes
-    node_count = 0;
-    for (int i = 0; i <= max_node_id; i++) {
-        if (node_exists[i]) {
-            node_count++;
+
+
+    // Cleanup
+    free(thread_best_scores);
+
+    printf("Bader Parallel Annealing finished.\n");
+}
+
+
+// Example Main function (will be replaced by Python calls)
+int main_example(int argc, char *argv[]) {
+     printf("Bader Parallel Annealing Refactored Example\n");
+     srand(time(NULL));
+
+     // --- Configuration ---
+     const char* graph_filename = "./graph.csv"; // Input graph
+     int num_threads = 4; // Example
+     long long iters_per_thread = 25000000; // Example
+     double tmin = 0.001;
+     double tmax = 0.1;
+     int go_back_window = 10000000; // Large window
+     int toposhuffle_freq = 5000000; // Relatively frequent
+     int verbosity = 2; // Detailed logging
+     int updates_per_thread = 10; // Log 10 times per thread run
+
+     // --- Load Connectome ---
+     Connectome* connectome = load_connectome(graph_filename);
+     if (!connectome) return 1;
+
+     // --- Create Initial Solution ---
+     SolutionInstance* current_solution = create_random_solution_instance(connectome);
+     if (!current_solution) {
+         free_connectome(connectome);
+         return 1;
+     }
+
+     // --- Initialize Global Best Storage ---
+     // Important: Initialize before the parallel run
+     BestSolutionStorage global_best = {NULL, -1, 0};
+     global_best.solution_size = current_solution->solution_size;
+     global_best.best_score = current_solution->forward_score; // Start with initial random score
+     global_best.best_solution_array = (int*)malloc(global_best.solution_size * sizeof(int));
+     if (global_best.best_solution_array) {
+         copy_solution(global_best.best_solution_array, current_solution->solution, global_best.solution_size);
+     } else {
+         perror("Failed to allocate global best storage");
+         free_solution_instance(current_solution);
+         free_connectome(connectome);
+         return 1;
+     }
+
+
+     // --- Run Bader's Annealing ---
+     run_simanneal_parallel_with_toposhuffle(
+         current_solution, // This instance will be updated with the best result
+         connectome,
+         num_threads,
+         iters_per_thread,
+         updates_per_thread,
+         tmin,
+         tmax,
+         go_back_window,
+         toposhuffle_freq,
+         verbosity,
+         &global_best // Pass the shared global best tracker
+     );
+
+
+     // --- Results ---
+     printf("\nFinal Best Score (Bader): %lld\n", global_best.best_score);
+     printf("Solution instance score after run: %lld\n", current_solution->forward_score); // Should match global best
+
+    // Optional: Save the best solution (better handled by Python wrapper)
+    if (global_best.best_solution_array) {
+        printf("Saving best solution to best_solution_bader.txt\n");
+        FILE* outfile = fopen("best_solution_bader.txt", "w");
+        if (outfile) {
+             for (int i = 0; i < global_best.solution_size; ++i) {
+                 fprintf(outfile, "%d\n", global_best.best_solution_array[i]);
+             }
+             fclose(outfile);
+        } else {
+            perror("Failed to write best solution file");
         }
     }
-    
-    // Create sorted node list
-    sorted_idx_to_node = (long long*)malloc(node_count * sizeof(long long));
-    int idx = 0;
-    for (int i = 0; i <= max_node_id; i++) {
-        if (node_exists[i]) {
-            sorted_idx_to_node[idx++] = i;
-        }
-    }
-    
-    // Create node to index mapping
-    node_to_sorted_idx = (int*)malloc((max_node_id + 1) * sizeof(int));
-    for (int i = 0; i < node_count; i++) {
-        node_to_sorted_idx[sorted_idx_to_node[i]] = i;
-    }
-    
-    // Initialize adjacency lists
-    out_adj = (Edge**)malloc(node_count * sizeof(Edge*));
-    in_adj = (Edge**)malloc(node_count * sizeof(Edge*));
-    out_adj_size = (int*)calloc(node_count, sizeof(int));
-    in_adj_size = (int*)calloc(node_count, sizeof(int));
-    
-    // Count edges for each node
-    for (int i = 0; i < graph_size; i++) {
-        long long source_id = graph[i][0];
-        long long target_id = graph[i][1];
-        
-        int source_idx = node_to_sorted_idx[source_id];
-        int target_idx = node_to_sorted_idx[target_id];
-        
-        out_adj_size[source_idx]++;
-        in_adj_size[target_idx]++;
-    }
-    
-    // Allocate memory for adjacency lists
-    for (int i = 0; i < node_count; i++) {
-        out_adj[i] = (Edge*)malloc(out_adj_size[i] * sizeof(Edge));
-        in_adj[i] = (Edge*)malloc(in_adj_size[i] * sizeof(Edge));
-    }
-    
-    // Reset counts for filling
-    int* out_count = (int*)calloc(node_count, sizeof(int));
-    int* in_count = (int*)calloc(node_count, sizeof(int));
-    
-    // Fill adjacency lists
-    for (int i = 0; i < graph_size; i++) {
-        long long source_id = graph[i][0];
-        long long target_id = graph[i][1];
-        long long weight = graph[i][2];
-        
-        int source_idx = node_to_sorted_idx[source_id];
-        int target_idx = node_to_sorted_idx[target_id];
-        
-        out_adj[source_idx][out_count[source_idx]].node = target_idx;
-        out_adj[source_idx][out_count[source_idx]].weight = weight;
-        out_count[source_idx]++;
-        
-        in_adj[target_idx][in_count[target_idx]].node = source_idx;
-        in_adj[target_idx][in_count[target_idx]].weight = weight;
-        in_count[target_idx]++;
-    }
-    
-    // Initialize state
-    state = (int*)malloc(node_count * sizeof(int));
-    
-    // Read initial state from input file
-    int state_rows, state_cols;
-    char*** state_records = read_csv(in_path, &state_rows, &state_cols);
-    
-    for (int i = 1; i < state_rows; i++) {
-        long long node_id = atoll(state_records[i][0]);
-        int order = atoi(state_records[i][1]);
-        state[node_to_sorted_idx[node_id]] = order;
-    }
-    
-    // Set up signal handlers
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
-    
-    // Initialize logs
-    logs = (LogEntry*)malloc(sizeof(LogEntry) * 1000);  // Initial capacity
-    log_count = 0;
-    
-    // Add initial log entry
-    logs[log_count].start_time = time(NULL);
-    logs[log_count].iterations = 0;
-    logs[log_count].cumulative_iterations = 0;
-    logs[log_count].energy = energy(state);
-    log_count++;
-    
-    // Main optimization loop
-    int outer_loop_count = 0;
-    
-    while (1) {
-        outer_loop_count++;
-        if (max_iters > 0 && outer_loop_count > max_iters / iters_per_thread) {
-            break;
-        }
-        
-        if (interrupted) {
-            if (verbosity >= 1) {
-                printf("Interrupt received, saving results and exiting...\n");
-                printf("Iterations: %d\n", outer_loop_count * iters_per_thread);
-            }
-            write_to_csv(out_path, state, sorted_idx_to_node, node_count);
-            write_logs(log_path, logs, log_count);
-            break;
-        }
-        
-        // Allocate memory for thread states and results
-        int** states_arr = (int**)malloc(threads * sizeof(int*));
-        for (int i = 0; i < threads; i++) {
-            states_arr[i] = (int*)malloc(node_count * sizeof(int));
-            memcpy(states_arr[i], state, node_count * sizeof(int));
-        }
-        
-        Result* results = (Result*)malloc(threads * sizeof(Result));
-        
-        // Run parallel annealing using OpenMP
-        #pragma omp parallel for num_threads(threads)
-        for (int i = 0; i < threads; i++) {
-            if (verbosity >= 2) {
-                printf("Thread %d started\n", i);
-            }
-            parallel_anneal(i, tmin, tmax, iters_per_thread, states_arr[i], results);
-            if (verbosity >= 2) {
-                printf("Thread %d finished\n", i);
-            }
-        }
-        
-        // Collect results from threads
-        int bestEnergy = results[0].score;
-        int bestIndex = 0;
-        for (int i = 1; i < threads; i++) {
-            if (results[i].score < bestEnergy) {
-                bestEnergy = results[i].score;
-                bestIndex = i;
-            }
-        }
-        
-        // Update logs with cumulative iterations
-        int cumulative_iters = outer_loop_count * iters_per_thread;
-        logs[log_count].start_time = time(NULL);
-        logs[log_count].iterations = iters_per_thread;
-        logs[log_count].cumulative_iterations = cumulative_iters;
-        logs[log_count].energy = bestEnergy;
-        log_count++;
-        
-        // Update global state with best result from this outer loop
-        memcpy(state, states_arr[bestIndex], node_count * sizeof(int));
-        
-        if (verbosity >= 1) {
-            printf("Final energy: %d\n", bestEnergy);
-            printf("Iterations: %d\n", cumulative_iters);
-            printf("------------------------------------------\n");
-        }
-        
-        // Optionally save intermediate results
-        if (iters_per_thread >= DEFAULT_ITERATIONS_TO_SAVE ||
-           (iters_per_thread < DEFAULT_ITERATIONS_TO_SAVE && outer_loop_count % (DEFAULT_ITERATIONS_TO_SAVE / iters_per_thread) == 0)) {
-            if (verbosity >= 2) {
-                printf("Saving results...\n");
-            }
-            write_to_csv(out_path, state, sorted_idx_to_node, node_count);
-            write_logs(log_path, logs, log_count);
-        }
-        
-        // Free allocated memory for thread states and results
-        for (int i = 0; i < threads; i++) {
-            free(states_arr[i]);
-        }
-        free(states_arr);
-        free(results);
-    }
-    
-    // After finishing the outer loop, write final results and logs
-    write_to_csv(out_path, state, sorted_idx_to_node, node_count);
-    write_logs(log_path, logs, log_count);
-    
-    return 0;
+
+     // --- Cleanup ---
+     free(global_best.best_solution_array);
+     free_solution_instance(current_solution);
+     free_connectome(connectome);
+
+     printf("Cleanup complete. Exiting.\n");
+     return 0;
 }

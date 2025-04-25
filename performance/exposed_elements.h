@@ -1,79 +1,64 @@
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <math.h>
+#include "connectome.h" // Include base types
+#include "solution_instance.h" // Include solution types
+#include "simanneal_finetune_parallel.h" // Include bader function prototypes
+#include "okubo_ls.h"
 
-typedef struct {
-    int from_id;
-    int to_id;
-    int weight;
-} Connection;
+// Connectome Management
+Connectome* load_connectome(const char* graph_filename);
+void free_connectome(Connectome* connectome);
+int get_connection_weight(const Connectome* connectome, int from_dense_idx, int to_dense_idx);
+long get_connectome_num_nodes(const Connectome* connectome);
+uint64_t* get_dense_idx_to_node_id_array_ptr(Connectome* connectome); // Allow Python to read the map
 
-typedef struct {
-    int forward;
-    int backward;
-    double ratio;  // calculated: forward / (forward + backward)
-} Score;
+// Solution Instance Management
+SolutionInstance* create_solution_instance(const Connectome* connectome, int* initial_solution_dense_array, bool calculate_initial_score);
+SolutionInstance* create_random_solution_instance(const Connectome* connectome);
+void free_solution_instance(SolutionInstance* instance);
+long long get_solution_score(const SolutionInstance* instance); // Simple accessor
+long get_solution_size(const SolutionInstance* instance);
+int* get_solution_array_ptr(SolutionInstance* instance); // To read solution back in Python
 
-typedef struct {
-    int *best;
-    int score;
-    int instance_id;
-} BestSolution;
+// Hashorva Algorithm Entry Point
+void run_simanneal_parallel(
+    SolutionInstance* instance,
+    const Connectome* connectome,
+    double initial_temperature,
+    double cooling_rate,
+    long long max_iterations,
+    long long iterations_per_log,
+    bool log_progress
+);
 
-typedef struct {
-    int *solution;
-    int *ix_lookup;
-    int forward_score;
-    int backward_score;
-    int instance_id;
-} SolutionInstance;
+// Bader Algorithm Entry Point
+void run_simanneal_parallel_with_toposhuffle(
+    SolutionInstance* instance,
+    const Connectome* connectome,
+    int num_threads,
+    long long iterations_per_thread,
+    int updates_per_thread,
+    double tmin,
+    double tmax,
+    int go_back_to_best_window,
+    int toposhuffle_frequency,
+    int verbosity,
+    BestSolutionStorage* global_best // Python will need to manage this struct
+);
 
-extern int MAX_CELL_ID;
-extern Connection *connection_by_cells_id_dict;
-extern long connection_dict_count;
-extern int **outgoing_connections;
-extern int *outgoing_connections_size;
-extern int **incoming_connections;
-extern int *incoming_connections_size;
+// Okubo Local Search Entry Point
+void run_okubo_local_search(
+    SolutionInstance* instance,
+    const Connectome* connectome,
+    int n_epochs,
+    bool log_progress,
+    int log_interval
+);
 
+// Best Solution Management (Python needs to create and manage this)
+BestSolutionStorage* create_best_solution_storage();
+void free_best_solution_storage(BestSolutionStorage* storage);
+void init_best_solution_storage(BestSolutionStorage* storage, const SolutionInstance* instance);
+long long get_best_solution_score(const BestSolutionStorage* storage);
+int* get_best_solution_array_ptr(BestSolutionStorage* storage); // To read best solution
 
-// Global variables
-extern char **cell_names;
-extern int *cell_names_r_keys;
-extern int *cell_names_r_values;
-extern int cell_names_count = 0;
-
-extern Connection *connection_by_cells_id_dict;
-extern long connection_dict_count = 0;
-
-extern int **outgoing_connections;
-extern int *outgoing_connections_size;
-extern int **incoming_connections;
-extern int *incoming_connections_size;
-
-extern long cnt = 0;
-extern long last_change_step = 0;
-extern long last_step = 0;
-extern double last_temperature;
-
-extern BestSolution best_solution = {NULL, 0, 0};
-
-// Function prototypes
-SolutionInstance* create_solution_instance(int *solution, int solution_size, int forward_score);
-SolutionInstance* create_random_solution_instance();
-SolutionInstance* read_solution_from_file(const char *filename, bool randomize);
-void free_solution_instance(SolutionInstance *instance);
-Score calculate_score(SolutionInstance *instance);
-void swap(SolutionInstance *instance, int i1, int i2, double temperature);
-bool check_best_solution(BestSolution *best, SolutionInstance *instance);
-uint64_t random();
-
-void read_connections(char* filename);
-void read_cell_names(char *filename);
-SolutionInstance *create_random_solution_instance();
-void perform_simanneal(double temperature, double cooling_rate, SolutionInstance *the_solution, bool log_to_file, bool write_updated_solution);
-void free_solution_instance(SolutionInstance *instance);
-void cleanup();
-
-char* float_to_string(double value);
+// Utility
+void seed_rng(unsigned int seed); // Function to seed RNG from Python
