@@ -1,184 +1,176 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <time.h>
-#include <omp.h> // Keep if using OpenMP in Hashorva's original approach
 #include <stdbool.h>
+#include <stdint.h>
+#include <math.h>
+#include <time.h>
+#include <omp.h>
 
 #include "../connectome.h"
 #include "solution_instance.h"
 
-// --- Configuration Constants (formerly macros/globals) ---
-// const int THREAD_NUM = 4; // Example, maybe configure externally
-const long long ITERATIONS_PER_TEMP_CHECK = 1000000; // How often to check temp/log
-
-
-// --- Global for Best Solution ---
-// It's often better to pass this around, but a single global might be okay
-// if only one annealing process runs at a time.
-BestSolutionStorage overall_best_solution = {NULL, -1, 0}; // Initialize score to invalid
-
-// --- Forward Declarations (if needed, e.g., for thread_run if using) ---
-// void thread_run(...); // If using Hashorva's threading model
-
-// Simple SimAnneal implementation (can be adapted for threading later)
+// --- Hashorva Algorithm Entry Point ---
 void run_simanneal_parallel(
-    SolutionInstance* instance,      // Starting (and evolving) solution
+    SolutionInstance* instance,      // Input instance, WILL BE MODIFIED to hold the best result
     const Connectome* connectome,
     double initial_temperature,
-    double cooling_rate,
-    long long max_iterations,        // Total iterations limit
-    long long iterations_per_log,    // How often to print status
-    bool log_progress              // Flag to enable/disable console logging
-) {
-    if (!instance || !connectome) return;
+    double cooling_rate,             // Rate applied per step
+    long long max_iterations,        // Total iterations across all threads (approx)
+    long long iterations_per_log,    // Logging frequency per thread
+    bool log_progress)
+{
+    if (!instance || !connectome) {
+        fprintf(stderr, "Error (run_simanneal_parallel): NULL instance or connectome.\n");
+        return;
+    }
 
-    double temperature = initial_temperature;
-    long long iteration = 0;
-    time_t last_log_time = time(NULL);
-
-    // Initial check against the best solution found so far
-    update_best_solution(&overall_best_solution, instance);
-
-    printf("Starting Simulated Annealing...\n");
-    printf("  Initial Temp: %.4f, Cooling Rate: %.10f, Max Iterations: %lld\n",
-           initial_temperature, cooling_rate, max_iterations);
-     printf("  Initial Score: %lld (Best known: %lld)\n", instance->forward_score, overall_best_solution.best_score);
-
-    while (temperature > 1e-9 && (max_iterations <= 0 || iteration < max_iterations)) {
-        // --- Perform a batch of swaps ---
-        // Original Hashorva used threads here. Simplified sequential version:
-        for (long long i = 0; i < ITERATIONS_PER_TEMP_CHECK && (max_iterations <= 0 || iteration < max_iterations); ++i) {
-            // Select two distinct random positions
-            int pos1 = random_u64() % instance->solution_size;
-            int pos2 = random_u64() % instance->solution_size;
-            if (pos1 == pos2) {
-                pos2 = (pos1 + 1) % instance->solution_size; // Ensure different
-            }
-
-            // Attempt the swap
-            bool accepted = apply_swap(instance, connectome, pos1, pos2, temperature, false);
-
-             // Check if the current state is the new best overall
-            if (accepted) { // Only need to check if score changed
-                 update_best_solution(&overall_best_solution, instance);
-            }
-
-            iteration++;
-        } // End batch of swaps
-
-        // --- Update temperature ---
-        temperature *= (1.0 - cooling_rate); // Geometric cooling
-
-        // --- Logging ---
-        if (log_progress && (iteration % iterations_per_log == 0 || (time(NULL) - last_log_time >= 10))) {
-             time_t now = time(NULL);
-             char timestamp[64];
-             strftime(timestamp, sizeof(timestamp), "%H:%M:%S", localtime(&now));
-
-             double progress_percent = (max_iterations > 0) ? (double)iteration * 100.0 / max_iterations : 0.0;
-             double ratio = (connectome->total_weight > 0) ? (double)overall_best_solution.best_score / connectome->total_weight : 0.0;
-
-             printf("%s [%lld / %lld, %.1f%%] Temp: %.4g, Current Score: %lld, Best Score: %lld (Ratio: %.6f)\n",
-                    timestamp, iteration, max_iterations > 0 ? max_iterations : -1, progress_percent,
-                    temperature, instance->forward_score, overall_best_solution.best_score, ratio);
-             last_log_time = now;
-
-             // Optional: Log to file (better handled by Python wrapper)
-             // FILE* log_file = fopen("simanneal_log.txt", "a");
-             // if (log_file) {
-             //     fprintf(log_file, "%ld\t%lld\t%.6g\t%lld\t%.6f\n", now, iteration, temperature, overall_best_solution.best_score, ratio);
-             //     fclose(log_file);
-             // }
-        }
-
-    } // End while temperature > threshold
-
-    printf("Simulated Annealing finished.\n");
-    printf("  Final Temperature: %.4g\n", temperature);
-    printf("  Total Iterations: %lld\n", iteration);
-    printf("  Best Score Achieved: %lld\n", overall_best_solution.best_score);
-
-    // Optional: Copy the best solution back into the instance if desired
-     if (overall_best_solution.best_solution_array && overall_best_solution.best_score > instance->forward_score) {
-         printf("  (Restoring best found solution into the instance)\n");
-         copy_solution(instance->solution, overall_best_solution.best_solution_array, instance->solution_size);
-         // Recalculate node_to_position map and score for the instance
-         for(int i=0; i < instance->solution_size; ++i) instance->node_to_position[instance->solution[i]] = i;
-         instance->forward_score = overall_best_solution.best_score; // Should match calculate_forward_score
+    long n = connectome->num_nodes;
+    if (n <= 1) {
+        printf("Warning: Graph has 0 or 1 nodes. No annealing possible.\n");
+        return;
+    }
+    if (initial_temperature <= 0) {
+         fprintf(stderr, "Error: Initial temperature must be positive.\n");
+         return;
+    }
+     if (cooling_rate < 0 || cooling_rate >= 1) {
+         fprintf(stderr, "Error: Cooling rate must be between 0 and 1 (exclusive of 1).\n");
+         return;
      }
-}
+
+    int num_threads = omp_get_max_threads(); // Use max available threads
+
+    // We need a way to store the globally best score found so far across threads
+    // We will use the input instance itself, protected by a lock/critical section.
+    // Initialize its score if it wasn't calculated before.
+    if (instance->forward_score < 0) {
+         instance->forward_score = calculate_forward_score(instance, connectome);
+    }
+    long long global_best_score = instance->forward_score; // Initial best is the input score
+
+    // Calculate iterations per thread. Simple division.
+    long long iters_per_thread = (max_iterations + num_threads - 1) / num_threads; // Ceiling division
 
 
-// Example Main function (will be replaced by Python calls)
-int main_hashorva_example(int argc, char *argv[]) {
-    printf("Hashorva Feed Forward Refactored Example\n");
-    srand(time(NULL)); // Seed random number generator ONCE
-
-    // --- Configuration ---
-    const char* graph_filename = "./graph.csv"; // Input graph
-    double initial_temp = 50.0;
-    double cool_rate = 1e-9; // Very slow cooling
-    long long total_iterations = 50000000; // Example limit
-    long long log_interval = 5000000; // Log every 5M iterations
-
-    // --- Load Connectome ---
-    Connectome* connectome = load_connectome(graph_filename);
-    if (!connectome) {
-        return 1;
+    if (log_progress) {
+        printf("Starting Hashorva Simulated Annealing (Parallel)...\n");
+        printf("  Threads: %d\n", num_threads);
+        printf("  Target Iterations: %lld (approx %lld per thread)\n", max_iterations, iters_per_thread);
+        printf("  Initial Temp: %f\n", initial_temperature);
+        printf("  Cooling Rate (per step): %e\n", cooling_rate);
+        printf("  Log Interval (per thread): %lld\n", iterations_per_log);
+        printf("  Initial Score: %lld\n", instance->forward_score);
+        printf("------------------------------------------\n");
     }
 
-    // --- Create Initial Solution ---
-    // SolutionInstance* current_solution = read_solution_from_file(...) // If reading start point
-    SolutionInstance* current_solution = create_random_solution_instance(connectome);
-    if (!current_solution) {
-        free_connectome(connectome);
-        return 1;
-    }
 
-    // Initialize best solution storage before starting
-    overall_best_solution.best_score = -1; // Reset best score
+    #pragma omp parallel
+    {
+        int thread_id = omp_get_thread_num();
+        unsigned int thread_seed = time(NULL) ^ (unsigned int)thread_id ^ (unsigned int)random_u64(); // Per-thread RNG seed
 
-    // --- Run Annealing ---
-    run_simanneal_parallel(
-        current_solution,
-        connectome,
-        initial_temp,
-        cool_rate,
-        total_iterations,
-        log_interval,
-        true // Enable logging
-    );
-
-    // --- Results ---
-    printf("\nFinal Best Score: %lld\n", overall_best_solution.best_score);
-
-    // Optional: Save the best solution (better handled by Python wrapper)
-    if (overall_best_solution.best_solution_array) {
-        printf("Saving best solution to best_solution_hashorva.txt\n");
-        FILE* outfile = fopen("best_solution_hashorva.txt", "w");
-        if (outfile) {
-             for (int i = 0; i < overall_best_solution.solution_size; ++i) {
-                 // Only write nodes that actually existed (e.g., based on degree)
-                 // Or just write all indices if the array represents the full range 0..max_id
-                 fprintf(outfile, "%d\n", overall_best_solution.best_solution_array[i]);
-             }
-             fclose(outfile);
-        } else {
-            perror("Failed to write best solution file");
+        // --- Thread-Local State Initialization ---
+        // Create a *copy* of the initial instance for this thread to work on.
+        SolutionInstance* thread_instance = create_solution_instance(connectome, instance->solution, false); // Copy solution, don't recalc score yet
+        if (!thread_instance) {
+             fprintf(stderr, "Error: Thread %d failed to allocate SolutionInstance.\n", thread_id);
+             #pragma omp cancellation point parallel // If possible
         }
+        thread_instance->forward_score = instance->forward_score; // Copy initial score
+
+        double current_temperature = initial_temperature;
+        long long thread_accepted_moves = 0;
+
+
+        // --- Annealing Loop (Thread-Local) ---
+        for (long long iter = 0; iter < iters_per_thread; ++iter) {
+
+            // Check for cancellation (optional)
+            #pragma omp cancellation point parallel
+
+            // --- Select Move: Swap two random positions ---
+            int pos1 = rand_r(&thread_seed) % n;
+            int pos2 = rand_r(&thread_seed) % (n - 1);
+            if (pos2 >= pos1) pos2++; // Ensure distinct positions
+
+            // --- Attempt Swap ---
+            // Apply swap modifies thread_instance *in place* if accepted
+            bool accepted = apply_swap(thread_instance, connectome, pos1, pos2, current_temperature, true, &thread_seed); // `true` = always accept better (matches C# n_f >= o_f)
+
+            if (accepted) {
+                thread_accepted_moves++;
+            }
+
+            // --- Update Temperature (per step, like C#) ---
+            current_temperature *= (1.0 - cooling_rate);
+             // Prevent temperature from becoming zero or negative if cooling rate is high
+             if (current_temperature < 1e-9) {
+                 current_temperature = 1e-9; // Set a floor to avoid issues with exp()
+             }
+
+            // --- Logging ---
+            if (log_progress && iterations_per_log > 0 && (iter + 1) % iterations_per_log == 0) {
+                #pragma omp critical (log_output) // Synchronize console output if needed
+                {
+                    printf("Thr %d: Iter %lld | Temp %.4e | Score %lld | Accepted %lld\n",
+                           thread_id, iter + 1, current_temperature, thread_instance->forward_score, thread_accepted_moves);
+                }
+                thread_accepted_moves = 0; // Reset counter for next interval
+            }
+
+             // Check if we should break (e.g., temperature too low)? C# loops until T < 0.
+             // This C loop runs for a fixed number of iterations.
+        } // End of annealing loop for this thread
+
+
+        // --- Update Global Best (using the input instance) ---
+        // Safely compare this thread's result with the current best stored in the input 'instance'
+        #pragma omp critical (update_global_best)
+        {
+            // Re-read the potentially updated global best score before comparing
+            // Note: instance->forward_score could have been updated by another thread.
+            if (thread_instance->forward_score > instance->forward_score) {
+                 if (log_progress) {
+                      printf("Thr %d: Found new best score: %lld (was %lld). Updating global.\n",
+                             thread_id, thread_instance->forward_score, instance->forward_score);
+                 }
+                 // Copy the better solution into the shared input instance
+                 copy_solution(instance->solution, thread_instance->solution, n);
+                 // Update the node_to_position map for the shared instance
+                 for(int i=0; i<n; ++i) {
+                     instance->node_to_position[instance->solution[i]] = i;
+                 }
+                 // Update the score of the shared instance
+                 instance->forward_score = thread_instance->forward_score;
+
+                 // Update the variable tracking the best score seen so far
+                 // (This isn't strictly needed if we always read instance->forward_score inside critical,
+                 // but can be helpful for clarity or if used elsewhere)
+                 // global_best_score = thread_instance->forward_score;
+            }
+        }
+
+        // --- Thread Cleanup ---
+        free_solution_instance(thread_instance);
+
+    } // End of OpenMP parallel region
+
+
+    // --- Post-Processing ---
+    // The best solution found by any thread is now stored in the input 'instance'.
+    // Final recalculation just in case
+    long long final_recalculated_score = calculate_forward_score(instance, connectome);
+    if (final_recalculated_score != instance->forward_score) {
+        fprintf(stderr, "Warning: Final incremental score (%lld) differs from recalculation (%lld)!\n", instance->forward_score, final_recalculated_score);
+        instance->forward_score = final_recalculated_score; // Optionally correct it
     }
 
-    // --- Cleanup ---
-    free(overall_best_solution.best_solution_array);
-    free_solution_instance(current_solution);
-    free_connectome(connectome);
 
-    printf("Cleanup complete. Exiting.\n");
-    return 0;
+    if (log_progress) {
+        printf("------------------------------------------\n");
+        printf("Hashorva Simulated Annealing finished.\n");
+        printf("Final Best Score (in input instance): %lld\n", instance->forward_score);
+        printf("------------------------------------------\n");
+    }
 }
 
-// Note: The main function above is just for testing.
-// The actual entry points for CFFI would be functions like load_connectome,
-// create_random_solution_instance, run_simanneal_parallel, free_solution_instance, etc.

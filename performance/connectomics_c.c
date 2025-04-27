@@ -579,11 +579,11 @@ static void (*_cffi_call_python_org)(struct _cffi_externpy_s *, char *);
 static void *_cffi_types[] = {
 /*  0 */ _CFFI_OP(_CFFI_OP_FUNCTION, 14), // BestSolutionStorage *()(void)
 /*  1 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/*  2 */ _CFFI_OP(_CFFI_OP_FUNCTION, 37), // Connectome *()(char const *)
-/*  3 */ _CFFI_OP(_CFFI_OP_POINTER, 90), // char const *
+/*  2 */ _CFFI_OP(_CFFI_OP_FUNCTION, 41), // Connectome *()(char const *)
+/*  3 */ _CFFI_OP(_CFFI_OP_POINTER, 94), // char const *
 /*  4 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
 /*  5 */ _CFFI_OP(_CFFI_OP_FUNCTION, 17), // SolutionInstance *()(Connectome const *)
-/*  6 */ _CFFI_OP(_CFFI_OP_POINTER, 88), // Connectome const *
+/*  6 */ _CFFI_OP(_CFFI_OP_POINTER, 92), // Connectome const *
 /*  7 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
 /*  8 */ _CFFI_OP(_CFFI_OP_FUNCTION, 17), // SolutionInstance *()(Connectome const *, int *, _Bool)
 /*  9 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
@@ -591,87 +591,91 @@ static void *_cffi_types[] = {
 /* 11 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 1), // _Bool
 /* 12 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
 /* 13 */ _CFFI_OP(_CFFI_OP_FUNCTION, 10), // int *()(BestSolutionStorage *)
-/* 14 */ _CFFI_OP(_CFFI_OP_POINTER, 84), // BestSolutionStorage *
+/* 14 */ _CFFI_OP(_CFFI_OP_POINTER, 88), // BestSolutionStorage *
 /* 15 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
 /* 16 */ _CFFI_OP(_CFFI_OP_FUNCTION, 10), // int *()(SolutionInstance *)
-/* 17 */ _CFFI_OP(_CFFI_OP_POINTER, 89), // SolutionInstance *
+/* 17 */ _CFFI_OP(_CFFI_OP_POINTER, 93), // SolutionInstance *
 /* 18 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
 /* 19 */ _CFFI_OP(_CFFI_OP_FUNCTION, 21), // int()(Connectome const *, int, int)
 /* 20 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
 /* 21 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7), // int
 /* 22 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
 /* 23 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 24 */ _CFFI_OP(_CFFI_OP_FUNCTION, 57), // long long()(BestSolutionStorage const *)
-/* 25 */ _CFFI_OP(_CFFI_OP_POINTER, 84), // BestSolutionStorage const *
+/* 24 */ _CFFI_OP(_CFFI_OP_FUNCTION, 61), // long long()(BestSolutionStorage const *)
+/* 25 */ _CFFI_OP(_CFFI_OP_POINTER, 88), // BestSolutionStorage const *
 /* 26 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 27 */ _CFFI_OP(_CFFI_OP_FUNCTION, 57), // long long()(SolutionInstance const *)
-/* 28 */ _CFFI_OP(_CFFI_OP_POINTER, 89), // SolutionInstance const *
+/* 27 */ _CFFI_OP(_CFFI_OP_FUNCTION, 61), // long long()(SolutionInstance const *)
+/* 28 */ _CFFI_OP(_CFFI_OP_POINTER, 93), // SolutionInstance const *
 /* 29 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 30 */ _CFFI_OP(_CFFI_OP_FUNCTION, 91), // long()(Connectome const *)
-/* 31 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
-/* 32 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 33 */ _CFFI_OP(_CFFI_OP_FUNCTION, 91), // long()(SolutionInstance const *)
-/* 34 */ _CFFI_OP(_CFFI_OP_NOOP, 28),
-/* 35 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 36 */ _CFFI_OP(_CFFI_OP_FUNCTION, 92), // uint64_t *()(Connectome *)
-/* 37 */ _CFFI_OP(_CFFI_OP_POINTER, 88), // Connectome *
-/* 38 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 39 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(BestSolutionStorage *)
-/* 40 */ _CFFI_OP(_CFFI_OP_NOOP, 14),
-/* 41 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 42 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(BestSolutionStorage *, SolutionInstance const *)
-/* 43 */ _CFFI_OP(_CFFI_OP_NOOP, 14),
-/* 44 */ _CFFI_OP(_CFFI_OP_NOOP, 28),
+/* 30 */ _CFFI_OP(_CFFI_OP_FUNCTION, 61), // long long()(SolutionInstance const *, Connectome const *)
+/* 31 */ _CFFI_OP(_CFFI_OP_NOOP, 28),
+/* 32 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
+/* 33 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 34 */ _CFFI_OP(_CFFI_OP_FUNCTION, 95), // long()(Connectome const *)
+/* 35 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
+/* 36 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 37 */ _CFFI_OP(_CFFI_OP_FUNCTION, 95), // long()(SolutionInstance const *)
+/* 38 */ _CFFI_OP(_CFFI_OP_NOOP, 28),
+/* 39 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 40 */ _CFFI_OP(_CFFI_OP_FUNCTION, 96), // uint64_t *()(Connectome *)
+/* 41 */ _CFFI_OP(_CFFI_OP_POINTER, 92), // Connectome *
+/* 42 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 43 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(BestSolutionStorage *)
+/* 44 */ _CFFI_OP(_CFFI_OP_NOOP, 14),
 /* 45 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 46 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(Connectome *)
-/* 47 */ _CFFI_OP(_CFFI_OP_NOOP, 37),
-/* 48 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 49 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(SolutionInstance *)
-/* 50 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
-/* 51 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 52 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(SolutionInstance *, Connectome const *, double, double, long long, long long, _Bool)
-/* 53 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
-/* 54 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
-/* 55 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14), // double
-/* 56 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14),
-/* 57 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 11), // long long
-/* 58 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 11),
-/* 59 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 1),
-/* 60 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 61 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(SolutionInstance *, Connectome const *, int, _Bool, int)
-/* 62 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
-/* 63 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
-/* 64 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
-/* 65 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 1),
-/* 66 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
-/* 67 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 68 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(SolutionInstance *, Connectome const *, int, long long, int, double, double, int, int, int, BestSolutionStorage *)
-/* 69 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
-/* 70 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
-/* 71 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
-/* 72 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 11),
-/* 73 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
-/* 74 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14),
-/* 75 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14),
-/* 76 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
+/* 46 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(BestSolutionStorage *, SolutionInstance const *)
+/* 47 */ _CFFI_OP(_CFFI_OP_NOOP, 14),
+/* 48 */ _CFFI_OP(_CFFI_OP_NOOP, 28),
+/* 49 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 50 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(Connectome *)
+/* 51 */ _CFFI_OP(_CFFI_OP_NOOP, 41),
+/* 52 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 53 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(SolutionInstance *)
+/* 54 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
+/* 55 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 56 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(SolutionInstance *, Connectome const *, double, double, long long, long long, _Bool)
+/* 57 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
+/* 58 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
+/* 59 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14), // double
+/* 60 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14),
+/* 61 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 11), // long long
+/* 62 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 11),
+/* 63 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 1),
+/* 64 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 65 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(SolutionInstance *, Connectome const *, int, _Bool, int)
+/* 66 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
+/* 67 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
+/* 68 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
+/* 69 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 1),
+/* 70 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
+/* 71 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 72 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(SolutionInstance *, Connectome const *, int, long long, int, double, double, int, int, int, BestSolutionStorage *)
+/* 73 */ _CFFI_OP(_CFFI_OP_NOOP, 17),
+/* 74 */ _CFFI_OP(_CFFI_OP_NOOP, 6),
+/* 75 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
+/* 76 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 11),
 /* 77 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
-/* 78 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
-/* 79 */ _CFFI_OP(_CFFI_OP_NOOP, 14),
-/* 80 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 81 */ _CFFI_OP(_CFFI_OP_FUNCTION, 94), // void()(unsigned int)
-/* 82 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 8), // unsigned int
-/* 83 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
-/* 84 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 0), // BestSolutionStorage
-/* 85 */ _CFFI_OP(_CFFI_OP_POINTER, 86), // ConnectionNeighbor * *
-/* 86 */ _CFFI_OP(_CFFI_OP_POINTER, 87), // ConnectionNeighbor *
-/* 87 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 1), // ConnectionNeighbor
-/* 88 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 2), // Connectome
-/* 89 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 3), // SolutionInstance
-/* 90 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 2), // char
-/* 91 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 9), // long
-/* 92 */ _CFFI_OP(_CFFI_OP_POINTER, 93), // uint64_t *
-/* 93 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 24), // uint64_t
-/* 94 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 0), // void
+/* 78 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14),
+/* 79 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 14),
+/* 80 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
+/* 81 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
+/* 82 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 7),
+/* 83 */ _CFFI_OP(_CFFI_OP_NOOP, 14),
+/* 84 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 85 */ _CFFI_OP(_CFFI_OP_FUNCTION, 98), // void()(unsigned int)
+/* 86 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 8), // unsigned int
+/* 87 */ _CFFI_OP(_CFFI_OP_FUNCTION_END, 0),
+/* 88 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 0), // BestSolutionStorage
+/* 89 */ _CFFI_OP(_CFFI_OP_POINTER, 90), // ConnectionNeighbor * *
+/* 90 */ _CFFI_OP(_CFFI_OP_POINTER, 91), // ConnectionNeighbor *
+/* 91 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 1), // ConnectionNeighbor
+/* 92 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 2), // Connectome
+/* 93 */ _CFFI_OP(_CFFI_OP_STRUCT_UNION, 3), // SolutionInstance
+/* 94 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 2), // char
+/* 95 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 9), // long
+/* 96 */ _CFFI_OP(_CFFI_OP_POINTER, 97), // uint64_t *
+/* 97 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 24), // uint64_t
+/* 98 */ _CFFI_OP(_CFFI_OP_PRIMITIVE, 0), // void
 };
 
 _CFFI_UNUSED_FN
@@ -722,6 +726,59 @@ static void _cffi_checkfld_typedef_SolutionInstance(SolutionInstance *p)
   (void)((p->solution_size) | 0);  /* check that 'SolutionInstance.solution_size' is an integer */
 }
 struct _cffi_align_typedef_SolutionInstance { char x; SolutionInstance y; };
+
+static long long _cffi_d_calculate_forward_score(SolutionInstance const * x0, Connectome const * x1)
+{
+  return calculate_forward_score(x0, x1);
+}
+#ifndef PYPY_VERSION
+static PyObject *
+_cffi_f_calculate_forward_score(PyObject *self, PyObject *args)
+{
+  SolutionInstance const * x0;
+  Connectome const * x1;
+  Py_ssize_t datasize;
+  struct _cffi_freeme_s *large_args_free = NULL;
+  long long result;
+  PyObject *pyresult;
+  PyObject *arg0;
+  PyObject *arg1;
+
+  if (!PyArg_UnpackTuple(args, "calculate_forward_score", 2, 2, &arg0, &arg1))
+    return NULL;
+
+  datasize = _cffi_prepare_pointer_call_argument(
+      _cffi_type(28), arg0, (char **)&x0);
+  if (datasize != 0) {
+    x0 = ((size_t)datasize) <= 640 ? (SolutionInstance const *)alloca((size_t)datasize) : NULL;
+    if (_cffi_convert_array_argument(_cffi_type(28), arg0, (char **)&x0,
+            datasize, &large_args_free) < 0)
+      return NULL;
+  }
+
+  datasize = _cffi_prepare_pointer_call_argument(
+      _cffi_type(6), arg1, (char **)&x1);
+  if (datasize != 0) {
+    x1 = ((size_t)datasize) <= 640 ? (Connectome const *)alloca((size_t)datasize) : NULL;
+    if (_cffi_convert_array_argument(_cffi_type(6), arg1, (char **)&x1,
+            datasize, &large_args_free) < 0)
+      return NULL;
+  }
+
+  Py_BEGIN_ALLOW_THREADS
+  _cffi_restore_errno();
+  { result = calculate_forward_score(x0, x1); }
+  _cffi_save_errno();
+  Py_END_ALLOW_THREADS
+
+  (void)self; /* unused */
+  pyresult = _cffi_from_c_int(result, long long);
+  if (large_args_free != NULL) _cffi_free_array_arguments(large_args_free);
+  return pyresult;
+}
+#else
+#  define _cffi_f_calculate_forward_score _cffi_d_calculate_forward_score
+#endif
 
 static BestSolutionStorage * _cffi_d_create_best_solution_storage(void)
 {
@@ -895,10 +952,10 @@ _cffi_f_free_connectome(PyObject *self, PyObject *arg0)
   struct _cffi_freeme_s *large_args_free = NULL;
 
   datasize = _cffi_prepare_pointer_call_argument(
-      _cffi_type(37), arg0, (char **)&x0);
+      _cffi_type(41), arg0, (char **)&x0);
   if (datasize != 0) {
     x0 = ((size_t)datasize) <= 640 ? (Connectome *)alloca((size_t)datasize) : NULL;
-    if (_cffi_convert_array_argument(_cffi_type(37), arg0, (char **)&x0,
+    if (_cffi_convert_array_argument(_cffi_type(41), arg0, (char **)&x0,
             datasize, &large_args_free) < 0)
       return NULL;
   }
@@ -1137,10 +1194,10 @@ _cffi_f_get_dense_idx_to_node_id_array_ptr(PyObject *self, PyObject *arg0)
   PyObject *pyresult;
 
   datasize = _cffi_prepare_pointer_call_argument(
-      _cffi_type(37), arg0, (char **)&x0);
+      _cffi_type(41), arg0, (char **)&x0);
   if (datasize != 0) {
     x0 = ((size_t)datasize) <= 640 ? (Connectome *)alloca((size_t)datasize) : NULL;
-    if (_cffi_convert_array_argument(_cffi_type(37), arg0, (char **)&x0,
+    if (_cffi_convert_array_argument(_cffi_type(41), arg0, (char **)&x0,
             datasize, &large_args_free) < 0)
       return NULL;
   }
@@ -1152,7 +1209,7 @@ _cffi_f_get_dense_idx_to_node_id_array_ptr(PyObject *self, PyObject *arg0)
   Py_END_ALLOW_THREADS
 
   (void)self; /* unused */
-  pyresult = _cffi_from_c_pointer((char *)result, _cffi_type(92));
+  pyresult = _cffi_from_c_pointer((char *)result, _cffi_type(96));
   if (large_args_free != NULL) _cffi_free_array_arguments(large_args_free);
   return pyresult;
 }
@@ -1355,7 +1412,7 @@ _cffi_f_load_connectome(PyObject *self, PyObject *arg0)
   Py_END_ALLOW_THREADS
 
   (void)self; /* unused */
-  pyresult = _cffi_from_c_pointer((char *)result, _cffi_type(37));
+  pyresult = _cffi_from_c_pointer((char *)result, _cffi_type(41));
   if (large_args_free != NULL) _cffi_free_array_arguments(large_args_free);
   return pyresult;
 }
@@ -1652,26 +1709,27 @@ _cffi_f_seed_rng(PyObject *self, PyObject *arg0)
 #endif
 
 static const struct _cffi_global_s _cffi_globals[] = {
+  { "calculate_forward_score", (void *)_cffi_f_calculate_forward_score, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 30), (void *)_cffi_d_calculate_forward_score },
   { "create_best_solution_storage", (void *)_cffi_f_create_best_solution_storage, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_N, 0), (void *)_cffi_d_create_best_solution_storage },
   { "create_random_solution_instance", (void *)_cffi_f_create_random_solution_instance, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 5), (void *)_cffi_d_create_random_solution_instance },
   { "create_solution_instance", (void *)_cffi_f_create_solution_instance, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 8), (void *)_cffi_d_create_solution_instance },
-  { "free_best_solution_storage", (void *)_cffi_f_free_best_solution_storage, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 39), (void *)_cffi_d_free_best_solution_storage },
-  { "free_connectome", (void *)_cffi_f_free_connectome, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 46), (void *)_cffi_d_free_connectome },
-  { "free_solution_instance", (void *)_cffi_f_free_solution_instance, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 49), (void *)_cffi_d_free_solution_instance },
+  { "free_best_solution_storage", (void *)_cffi_f_free_best_solution_storage, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 43), (void *)_cffi_d_free_best_solution_storage },
+  { "free_connectome", (void *)_cffi_f_free_connectome, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 50), (void *)_cffi_d_free_connectome },
+  { "free_solution_instance", (void *)_cffi_f_free_solution_instance, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 53), (void *)_cffi_d_free_solution_instance },
   { "get_best_solution_array_ptr", (void *)_cffi_f_get_best_solution_array_ptr, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 13), (void *)_cffi_d_get_best_solution_array_ptr },
   { "get_best_solution_score", (void *)_cffi_f_get_best_solution_score, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 24), (void *)_cffi_d_get_best_solution_score },
   { "get_connection_weight", (void *)_cffi_f_get_connection_weight, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 19), (void *)_cffi_d_get_connection_weight },
-  { "get_connectome_num_nodes", (void *)_cffi_f_get_connectome_num_nodes, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 30), (void *)_cffi_d_get_connectome_num_nodes },
-  { "get_dense_idx_to_node_id_array_ptr", (void *)_cffi_f_get_dense_idx_to_node_id_array_ptr, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 36), (void *)_cffi_d_get_dense_idx_to_node_id_array_ptr },
+  { "get_connectome_num_nodes", (void *)_cffi_f_get_connectome_num_nodes, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 34), (void *)_cffi_d_get_connectome_num_nodes },
+  { "get_dense_idx_to_node_id_array_ptr", (void *)_cffi_f_get_dense_idx_to_node_id_array_ptr, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 40), (void *)_cffi_d_get_dense_idx_to_node_id_array_ptr },
   { "get_solution_array_ptr", (void *)_cffi_f_get_solution_array_ptr, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 16), (void *)_cffi_d_get_solution_array_ptr },
   { "get_solution_score", (void *)_cffi_f_get_solution_score, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 27), (void *)_cffi_d_get_solution_score },
-  { "get_solution_size", (void *)_cffi_f_get_solution_size, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 33), (void *)_cffi_d_get_solution_size },
-  { "init_best_solution_storage", (void *)_cffi_f_init_best_solution_storage, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 42), (void *)_cffi_d_init_best_solution_storage },
+  { "get_solution_size", (void *)_cffi_f_get_solution_size, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 37), (void *)_cffi_d_get_solution_size },
+  { "init_best_solution_storage", (void *)_cffi_f_init_best_solution_storage, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 46), (void *)_cffi_d_init_best_solution_storage },
   { "load_connectome", (void *)_cffi_f_load_connectome, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 2), (void *)_cffi_d_load_connectome },
-  { "run_okubo_local_search", (void *)_cffi_f_run_okubo_local_search, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 61), (void *)_cffi_d_run_okubo_local_search },
-  { "run_simanneal_parallel", (void *)_cffi_f_run_simanneal_parallel, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 52), (void *)_cffi_d_run_simanneal_parallel },
-  { "run_simanneal_parallel_with_toposhuffle", (void *)_cffi_f_run_simanneal_parallel_with_toposhuffle, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 68), (void *)_cffi_d_run_simanneal_parallel_with_toposhuffle },
-  { "seed_rng", (void *)_cffi_f_seed_rng, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 81), (void *)_cffi_d_seed_rng },
+  { "run_okubo_local_search", (void *)_cffi_f_run_okubo_local_search, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 65), (void *)_cffi_d_run_okubo_local_search },
+  { "run_simanneal_parallel", (void *)_cffi_f_run_simanneal_parallel, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 56), (void *)_cffi_d_run_simanneal_parallel },
+  { "run_simanneal_parallel_with_toposhuffle", (void *)_cffi_f_run_simanneal_parallel_with_toposhuffle, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_V, 72), (void *)_cffi_d_run_simanneal_parallel_with_toposhuffle },
+  { "seed_rng", (void *)_cffi_f_seed_rng, _CFFI_OP(_CFFI_OP_CPYTHON_BLTN_O, 85), (void *)_cffi_d_seed_rng },
 };
 
 static const struct _cffi_field_s _cffi_fields[] = {
@@ -1680,7 +1738,7 @@ static const struct _cffi_field_s _cffi_fields[] = {
                            _CFFI_OP(_CFFI_OP_NOOP, 10) },
   { "best_score", offsetof(BestSolutionStorage, best_score),
                   sizeof(((BestSolutionStorage *)0)->best_score),
-                  _CFFI_OP(_CFFI_OP_NOOP, 57) },
+                  _CFFI_OP(_CFFI_OP_NOOP, 61) },
   { "solution_size", offsetof(BestSolutionStorage, solution_size),
                      sizeof(((BestSolutionStorage *)0)->solution_size),
                      _CFFI_OP(_CFFI_OP_NOOP, 21) },
@@ -1692,25 +1750,25 @@ static const struct _cffi_field_s _cffi_fields[] = {
               _CFFI_OP(_CFFI_OP_NOOP, 21) },
   { "num_nodes", offsetof(Connectome, num_nodes),
                  sizeof(((Connectome *)0)->num_nodes),
-                 _CFFI_OP(_CFFI_OP_NOOP, 91) },
+                 _CFFI_OP(_CFFI_OP_NOOP, 95) },
   { "num_connections", offsetof(Connectome, num_connections),
                        sizeof(((Connectome *)0)->num_connections),
-                       _CFFI_OP(_CFFI_OP_NOOP, 91) },
+                       _CFFI_OP(_CFFI_OP_NOOP, 95) },
   { "total_weight", offsetof(Connectome, total_weight),
                     sizeof(((Connectome *)0)->total_weight),
-                    _CFFI_OP(_CFFI_OP_NOOP, 57) },
+                    _CFFI_OP(_CFFI_OP_NOOP, 61) },
   { "dense_idx_to_node_id", offsetof(Connectome, dense_idx_to_node_id),
                             sizeof(((Connectome *)0)->dense_idx_to_node_id),
-                            _CFFI_OP(_CFFI_OP_NOOP, 92) },
+                            _CFFI_OP(_CFFI_OP_NOOP, 96) },
   { "outgoing", offsetof(Connectome, outgoing),
                 sizeof(((Connectome *)0)->outgoing),
-                _CFFI_OP(_CFFI_OP_NOOP, 85) },
+                _CFFI_OP(_CFFI_OP_NOOP, 89) },
   { "out_degree", offsetof(Connectome, out_degree),
                   sizeof(((Connectome *)0)->out_degree),
                   _CFFI_OP(_CFFI_OP_NOOP, 10) },
   { "incoming", offsetof(Connectome, incoming),
                 sizeof(((Connectome *)0)->incoming),
-                _CFFI_OP(_CFFI_OP_NOOP, 85) },
+                _CFFI_OP(_CFFI_OP_NOOP, 89) },
   { "in_degree", offsetof(Connectome, in_degree),
                  sizeof(((Connectome *)0)->in_degree),
                  _CFFI_OP(_CFFI_OP_NOOP, 10) },
@@ -1722,28 +1780,28 @@ static const struct _cffi_field_s _cffi_fields[] = {
                         _CFFI_OP(_CFFI_OP_NOOP, 10) },
   { "forward_score", offsetof(SolutionInstance, forward_score),
                      sizeof(((SolutionInstance *)0)->forward_score),
-                     _CFFI_OP(_CFFI_OP_NOOP, 57) },
+                     _CFFI_OP(_CFFI_OP_NOOP, 61) },
   { "solution_size", offsetof(SolutionInstance, solution_size),
                      sizeof(((SolutionInstance *)0)->solution_size),
                      _CFFI_OP(_CFFI_OP_NOOP, 21) },
 };
 
 static const struct _cffi_struct_union_s _cffi_struct_unions[] = {
-  { "$BestSolutionStorage", 84, _CFFI_F_CHECK_FIELDS,
+  { "$BestSolutionStorage", 88, _CFFI_F_CHECK_FIELDS,
     sizeof(BestSolutionStorage), offsetof(struct _cffi_align_typedef_BestSolutionStorage, y), 0, 3 },
-  { "$ConnectionNeighbor", 87, _CFFI_F_CHECK_FIELDS,
+  { "$ConnectionNeighbor", 91, _CFFI_F_CHECK_FIELDS,
     sizeof(ConnectionNeighbor), offsetof(struct _cffi_align_typedef_ConnectionNeighbor, y), 3, 2 },
-  { "$Connectome", 88, _CFFI_F_CHECK_FIELDS,
+  { "$Connectome", 92, _CFFI_F_CHECK_FIELDS,
     sizeof(Connectome), offsetof(struct _cffi_align_typedef_Connectome, y), 5, 8 },
-  { "$SolutionInstance", 89, _CFFI_F_CHECK_FIELDS,
+  { "$SolutionInstance", 93, _CFFI_F_CHECK_FIELDS,
     sizeof(SolutionInstance), offsetof(struct _cffi_align_typedef_SolutionInstance, y), 13, 4 },
 };
 
 static const struct _cffi_typename_s _cffi_typenames[] = {
-  { "BestSolutionStorage", 84 },
-  { "ConnectionNeighbor", 87 },
-  { "Connectome", 88 },
-  { "SolutionInstance", 89 },
+  { "BestSolutionStorage", 88 },
+  { "ConnectionNeighbor", 91 },
+  { "Connectome", 92 },
+  { "SolutionInstance", 93 },
 };
 
 static const struct _cffi_type_context_s _cffi_type_context = {
@@ -1753,12 +1811,12 @@ static const struct _cffi_type_context_s _cffi_type_context = {
   _cffi_struct_unions,
   NULL,  /* no enums */
   _cffi_typenames,
-  20,  /* num_globals */
+  21,  /* num_globals */
   4,  /* num_struct_unions */
   0,  /* num_enums */
   4,  /* num_typenames */
   NULL,  /* no includes */
-  95,  /* num_types */
+  99,  /* num_types */
   0,  /* flags */
 };
 

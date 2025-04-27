@@ -1,51 +1,65 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <math.h>
-#include <stdbool.h>
 #include <time.h>
 
-#include "solution_instance.h" // Includes connectome.h
+#include "solution_instance.h"
+#include "../connectome.h"
 
-// Helper to copy solution array
-void copy_solution(int* dest, const int* src, long size) {
-    memcpy(dest, src, size * sizeof(int));
-}
-
-// Create a SolutionInstance
+// Creates a SolutionInstance. If initial_solution_array is NULL, creates a random one.
 SolutionInstance* create_solution_instance(const Connectome* connectome, int* initial_solution_dense_array, bool calculate_initial_score) {
-    if (!connectome) return NULL;
+    if (!connectome) {
+        fprintf(stderr, "Error (create_solution_instance): Connectome pointer is NULL.\n");
+        return NULL;
+    }
+    long n = connectome->num_nodes;
+    if (n <= 0) {
+         fprintf(stderr, "Error (create_solution_instance): Connectome has no nodes.\n");
+         return NULL;
+    }
 
     SolutionInstance* instance = (SolutionInstance*)malloc(sizeof(SolutionInstance));
     if (!instance) {
-        perror("Failed to allocate SolutionInstance");
+        perror("Failed to allocate memory for SolutionInstance");
         return NULL;
     }
 
-    instance->solution_size = connectome->num_nodes; // Use the full size for indexing
-    instance->solution = (int*)malloc(instance->solution_size * sizeof(int));
-    instance->node_to_position = (int*)malloc(instance->solution_size * sizeof(int));
+    instance->solution_size = n;
+    instance->solution = (int*)malloc(n * sizeof(int));
+    instance->node_to_position = (int*)malloc(n * sizeof(int));
+    instance->forward_score = 0; // Initialize score
 
     if (!instance->solution || !instance->node_to_position) {
-        perror("Failed to allocate solution arrays");
-        free(instance->solution);
-        free(instance->node_to_position);
+        perror("Failed to allocate memory for solution arrays");
+        free(instance->solution); // Free partially allocated memory
         free(instance);
         return NULL;
     }
 
+    // Initialize solution array
     if (initial_solution_dense_array) {
-        copy_solution(instance->solution, initial_solution_dense_array, instance->solution_size);
+        memcpy(instance->solution, initial_solution_dense_array, n * sizeof(int));
     } else {
-        // Default: Initialize with identity permutation of dense indices (0, 1, 2, ...)
-        for (int i = 0; i < instance->solution_size; i++) {
+	printf("Creating random initial selection\n");
+        // Create identity permutation (0, 1, 2, ..., n-1) first
+        for (int i = 0; i < n; ++i) {
             instance->solution[i] = i;
+        }
+        // Shuffle it randomly (Fisher-Yates)
+        unsigned int seed = time(NULL) ^ (unsigned int)random_u64(); 
+        for (int i = n - 1; i > 0; --i) {
+            int j = rand_r(&seed) % (i + 1);
+            // Swap
+            int temp = instance->solution[i];
+            instance->solution[i] = instance->solution[j];
+            instance->solution[j] = temp;
         }
     }
 
-    // Initialize node_to_position lookup
-    for (int i = 0; i < instance->solution_size; i++) {
+    // Initialize node_to_position map
+    for (int i = 0; i < n; ++i) {
         instance->node_to_position[instance->solution[i]] = i;
     }
 
@@ -53,217 +67,197 @@ SolutionInstance* create_solution_instance(const Connectome* connectome, int* in
     if (calculate_initial_score) {
         instance->forward_score = calculate_forward_score(instance, connectome);
     } else {
-        instance->forward_score = 0; // Or some sentinel value like -1
+         instance->forward_score = -1; // Indicate score is not calculated yet
     }
-
-    // instance->instance_id = 0; // Set if needed
 
     return instance;
 }
 
-// Create a SolutionInstance with a random permutation
+// Creates a SolutionInstance with a random permutation.
 SolutionInstance* create_random_solution_instance(const Connectome* connectome) {
-    if (!connectome) return NULL;
-
-    long size = connectome->num_nodes;
-    int* initial_solution = (int*)malloc(size * sizeof(int));
-    if (!initial_solution) {
-        perror("Failed to allocate temporary solution for randomization");
-        return NULL;
-    }
-
-    // Initialize with identity permutation
-    for (int i = 0; i < size; i++) {
-        initial_solution[i] = i;
-    }
-
-    // Fisher-Yates shuffle
-    // Ensure srand() was called before this point
-    for (int i = size - 1; i > 0; i--) {
-        int j = random_u64() % (i + 1);
-        int temp = initial_solution[i];
-        initial_solution[i] = initial_solution[j];
-        initial_solution[j] = temp;
-    }
-
-    SolutionInstance* instance = create_solution_instance(connectome, initial_solution, true); // Calculate score
-
-    free(initial_solution);
-    return instance;
+    // Pass NULL for initial solution to trigger random creation, calculate score
+    return create_solution_instance(connectome, NULL, true);
 }
 
-// Free a SolutionInstance
+// Frees memory associated with a SolutionInstance.
 void free_solution_instance(SolutionInstance* instance) {
-    if (instance) {
-        free(instance->solution);
-        free(instance->node_to_position);
-        free(instance);
-    }
+    if (!instance) return;
+    free(instance->solution);
+    free(instance->node_to_position);
+    free(instance);
 }
 
-// Calculate the total forward score from scratch
+// Calculates the total forward score from scratch.
 long long calculate_forward_score(const SolutionInstance* instance, const Connectome* connectome) {
-    long long score = 0;
-    for (long i = 0; i < instance->solution_size; i++) { // Iterate through positions
-        int from_dense_idx = instance->solution[i]; // Get dense index at position i
-        
-        if (from_dense_idx < 0 || from_dense_idx >= connectome->num_nodes || !connectome->outgoing[from_dense_idx]) {
-            continue; // Skip nodes outside range or with no outgoing edges
-        }
+    if (!instance || !connectome) return 0;
 
-        ConnectionNeighbor* neighbors = connectome->outgoing[from_dense_idx];
-        int degree = connectome->out_degree[from_dense_idx];
+    long long current_score = 0;
+    long n = instance->solution_size;
 
-        for (int j = 0; j < degree; j++) {
-            int to_dense_idx = neighbors[j].neighbor_dense_idx;
-            int weight = neighbors[j].weight;
+    // Iterate through each node in its current position
+    for (int i = 0; i < n; ++i) {
+        int from_dense_idx = instance->solution[i]; // Get node at position i
+        int from_pos = i;
 
-            // Check if the 'to_node' exists in the solution's position mapping
-            if (to_dense_idx >= 0 && to_dense_idx < instance->solution_size) {
+        // Iterate through its outgoing neighbors
+        if (connectome->outgoing[from_dense_idx]) { // Check if the list exists
+            for (int k = 0; k < connectome->out_degree[from_dense_idx]; ++k) {
+                int to_dense_idx = connectome->outgoing[from_dense_idx][k].neighbor_dense_idx;
+                int weight = connectome->outgoing[from_dense_idx][k].weight;
                 int to_pos = instance->node_to_position[to_dense_idx];
-                if (to_pos > i) { // Check if the connection is forward
-                    score += weight;
+
+                // If neighbor position is after current node position, it's a forward edge
+                if (from_pos < to_pos) {
+                    current_score += weight;
                 }
-             } else {
-                  // This case should ideally not happen if solution_size == max_node_id
-                 fprintf(stderr, "Warning: Encountered to_dense_idx %d >= solution_size %d\n", to_dense_idx, instance->solution_size);
-             }
+            }
         }
     }
-    return score;
+    return current_score;
 }
 
 
-// Calculate the CHANGE in forward score if nodes at pos1 and pos2 were swapped.
-// More efficient than recalculating the whole score.
-long long calculate_score_delta_on_swap(const SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2) {
-    if (pos1 == pos2) return 0;
-
-    // Ensure pos1 < pos2
-    if (pos2 < pos1) {
-        int temp = pos1;
-        pos1 = pos2;
-        pos2 = temp;
-    }
-
-    int dense_idx1  = instance->solution[pos1];
-    int dense_idx2  = instance->solution[pos2];
-
+// Calculates the change in forward score IF nodes at pos1 and pos2 were swapped.
+// Returns delta such that new_score = old_score + delta.
+long long calculate_score_delta_on_swap(
+    const SolutionInstance* instance,
+    const Connectome* connectome,
+    int pos1,
+    int pos2)
+{
     long long delta = 0;
+    int dense_idx_a = instance->solution[pos1]; // Node currently at pos1
+    int dense_idx_b = instance->solution[pos2]; // Node currently at pos2
 
-    // 1. Consider connection between node1 and node2
-    int w12 = get_connection_weight(connectome, dense_idx1, dense_idx2 ); // Weight node1 -> node2
-    int w21 = get_connection_weight(connectome, dense_idx2, dense_idx1 ); // Weight node2 -> node1
+    // Ensure pos1 < pos2 for consistency, though logic should handle either way
+    // int pos_a = pos1;
+    // int pos_b = pos2;
 
-    // Original state: node1 at pos1, node2 at pos2 (pos1 < pos2)
-    // Contribution: w12 (if exists)
-    // New state: node2 at pos1, node1 at pos2 (pos1 < pos2)
-    // Contribution: w21 (if exists)
-    delta += (w21 - w12);
 
-    // 2. Consider connections involving node1 and OTHER nodes (k != node2)
-    // Outgoing from node1: (node1 -> k)
-    if (dense_idx1 >= 0 && dense_idx1 < connectome->num_nodes && connectome->outgoing[dense_idx1]) {
-        for (int i = 0; i < connectome->out_degree[dense_idx1]; ++i) {
-            int k_dense_idx = connectome->outgoing[dense_idx1][i].neighbor_dense_idx;
-            if (k_dense_idx == dense_idx2) continue; // Handled above
-            int weight = connectome->outgoing[dense_idx1][i].weight;
-            int k_pos = instance->node_to_position[k_dense_idx];
+    // --- Process Neighbors of A (node at pos1) ---
+    // Outgoing from A: a -> x
+    for (int i = 0; i < connectome->out_degree[dense_idx_a]; ++i) {
+        int dense_idx_x = connectome->outgoing[dense_idx_a][i].neighbor_dense_idx;
+        int weight = connectome->outgoing[dense_idx_a][i].weight;
 
-            // // Was it forward? (k_pos > pos1) -> Loses weight if k_pos < pos2
-            // if (k_pos > pos1 && k_pos < pos2) delta -= weight;
-            // // Was it backward? (k_pos < pos1) -> Gains weight if k_pos < pos2
-            // if (k_pos < pos1 && k_pos < pos2) delta += weight; // Mistake in logic? Let's rethink.
+        if (dense_idx_x == dense_idx_b) continue; // Handle a<->b separately
 
-            // Correct logic: Check original vs new forward status
-            bool originally_forward = (k_pos > pos1);
-            bool new_forward = (k_pos > pos2); // dense_idx1 moves to pos2
+        int pos_x = instance->node_to_position[dense_idx_x];
 
-            if (originally_forward && !new_forward) delta -= weight; // Loses forward score
-            if (!originally_forward && new_forward) delta += weight; // Gains forward score
-        }
+        // Was a -> x forward? (a is at pos1)
+        bool was_forward = pos1 < pos_x;
+        // Will a -> x be forward? (a moves to pos2)
+        bool is_forward = pos2 < pos_x;
+
+        if (is_forward && !was_forward) delta += weight;
+        else if (!is_forward && was_forward) delta -= weight;
     }
-     // Incoming to node1: (k -> node1)
-     if (dense_idx1 >= 0 && dense_idx1 < connectome->num_nodes && connectome->incoming[dense_idx1]) {
-        for (int i = 0; i < connectome->in_degree[dense_idx1]; ++i) {
-           int k_dense_idx = connectome->incoming[dense_idx1][i].neighbor_dense_idx;
-           if (k_dense_idx == dense_idx2) continue; // Handled above (as w21)
-           int weight = connectome->incoming[dense_idx1][i].weight;
-           int k_pos = instance->node_to_position[k_dense_idx];
+    // Incoming to A: x -> a
+    for (int i = 0; i < connectome->in_degree[dense_idx_a]; ++i) {
+        int dense_idx_x = connectome->incoming[dense_idx_a][i].neighbor_dense_idx;
+        int weight = connectome->incoming[dense_idx_a][i].weight;
 
-            // Was it forward? (k_pos < pos1) -> Loses weight if k_pos > pos2
-            if (k_pos < pos1 && k_pos > pos2) delta -= weight;
-            // Was it backward? (k_pos > pos1) -> Gains weight if k_pos > pos2
-             if (k_pos > pos1 && k_pos > pos2) delta += weight; // Again, let's verify logic.
+        if (dense_idx_x == dense_idx_b) continue; // Handle a<->b separately
 
-            // Correct logic: Check original vs new forward status
-            bool originally_forward = (k_pos < pos1);
-            bool new_forward = (k_pos < pos2); // node1 moves to pos2
+        int pos_x = instance->node_to_position[dense_idx_x];
 
-            if (originally_forward && !new_forward) delta -= weight; // Loses forward score
-            if (!originally_forward && new_forward) delta += weight; // Gains forward score
-        }
+        // Was x -> a forward? (a is at pos1)
+        bool was_forward = pos_x < pos1;
+        // Will x -> a be forward? (a moves to pos2)
+        bool is_forward = pos_x < pos2;
+
+        if (is_forward && !was_forward) delta += weight;
+        else if (!is_forward && was_forward) delta -= weight;
     }
 
-    // 3. Consider connections involving node2 and OTHER nodes (k != node1)
-    // Outgoing from node2: (node2 -> k)
-    if (dense_idx2 >= 0 && dense_idx2 < connectome->num_nodes && connectome->outgoing[dense_idx2]) {
-        for (int i = 0; i < connectome->out_degree[dense_idx2]; ++i) {
-            int k_dense_idx = connectome->outgoing[dense_idx2][i].neighbor_dense_idx;
-            if (k_dense_idx == dense_idx1) continue; // Handled above
-            int weight = connectome->outgoing[dense_idx2][i].weight;
-            int k_pos = instance->node_to_position[k_dense_idx];
+    // --- Process Neighbors of B (node at pos2) ---
+    // Outgoing from B: b -> x
+    for (int i = 0; i < connectome->out_degree[dense_idx_b]; ++i) {
+        int dense_idx_x = connectome->outgoing[dense_idx_b][i].neighbor_dense_idx;
+        int weight = connectome->outgoing[dense_idx_b][i].weight;
 
-            bool originally_forward = (k_pos > pos2);
-            bool new_forward = (k_pos > pos1); // dense_idx2 moves to pos1
+        if (dense_idx_x == dense_idx_a) continue; // Already handled
 
-            if (originally_forward && !new_forward) delta -= weight;
-            if (!originally_forward && new_forward) delta += weight;
-        }
+        int pos_x = instance->node_to_position[dense_idx_x];
+
+        // Was b -> x forward? (b is at pos2)
+        bool was_forward = pos2 < pos_x;
+        // Will b -> x be forward? (b moves to pos1)
+        bool is_forward = pos1 < pos_x;
+
+        if (is_forward && !was_forward) delta += weight;
+        else if (!is_forward && was_forward) delta -= weight;
     }
-     // Incoming to node2: (k -> node2)
-     if (dense_idx2 >= 0 && dense_idx2 < connectome->num_nodes && connectome->incoming[dense_idx2]) {
-        for (int i = 0; i < connectome->in_degree[dense_idx2]; ++i) {
-           int k_dense_idx = connectome->incoming[dense_idx2][i].neighbor_dense_idx;
-           if (k_dense_idx == dense_idx1) continue; // Handled above
-           int weight = connectome->incoming[dense_idx2][i].weight;
-           int k_pos = instance->node_to_position[k_dense_idx];
+    // Incoming to B: x -> b
+    for (int i = 0; i < connectome->in_degree[dense_idx_b]; ++i) {
+        int dense_idx_x = connectome->incoming[dense_idx_b][i].neighbor_dense_idx;
+        int weight = connectome->incoming[dense_idx_b][i].weight;
 
-            bool originally_forward = (k_pos < pos2);
-            bool new_forward = (k_pos < pos1); // node2 moves to pos1
+         if (dense_idx_x == dense_idx_a) continue; // Already handled
 
-            if (originally_forward && !new_forward) delta -= weight;
-            if (!originally_forward && new_forward) delta += weight;
-        }
-     }
+        int pos_x = instance->node_to_position[dense_idx_x];
+
+        // Was x -> b forward? (b is at pos2)
+        bool was_forward = pos_x < pos2;
+        // Will x -> b be forward? (b moves to pos1)
+        bool is_forward = pos_x < pos1;
+
+        if (is_forward && !was_forward) delta += weight;
+        else if (!is_forward && was_forward) delta -= weight;
+    }
+
+    // --- Handle the direct a <-> b interaction explicitly ---
+    int weight_ab = get_connection_weight(connectome, dense_idx_a, dense_idx_b);
+    int weight_ba = get_connection_weight(connectome, dense_idx_b, dense_idx_a);
+
+    // Contribution of a -> b
+    if (weight_ab > 0) {
+        bool was_forward_ab = pos1 < pos2;
+        bool is_forward_ab = pos2 < pos1; // New positions
+        if (is_forward_ab && !was_forward_ab) delta += weight_ab;
+        else if (!is_forward_ab && was_forward_ab) delta -= weight_ab;
+    }
+
+    // Contribution of b -> a
+     if (weight_ba > 0) {
+        bool was_forward_ba = pos2 < pos1;
+        bool is_forward_ba = pos1 < pos2; // New positions
+        if (is_forward_ba && !was_forward_ba) delta += weight_ba;
+        else if (!is_forward_ba && was_forward_ba) delta -= weight_ba;
+    }
 
     return delta;
 }
 
 
-// Attempts a swap and applies it based on simulated annealing criteria.
-// Returns true if the swap was accepted, false otherwise.
-bool apply_swap(SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2, double temperature, bool always_accept_better) {
-    if (pos1 == pos2 || pos1 < 0 || pos2 < 0 || pos1 >= instance->solution_size || pos2 >= instance->solution_size) {
-        return false; // Invalid positions
+// Attempts to swap nodes at pos1 and pos2 based on SA criteria.
+// Modifies the instance IN PLACE if the swap is accepted.
+// Returns true if swap was accepted, false otherwise.
+// NOTE: Requires external RNG state (e.g., rand_r or thread-local)
+bool apply_swap(SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2, double temperature, bool always_accept_better, unsigned int *rng_seed) {
+    if (!instance || !connectome || pos1 == pos2 || pos1 < 0 || pos2 < 0 || pos1 >= instance->solution_size || pos2 >= instance->solution_size) {
+        return false; // Invalid input
     }
 
+    // 1. Calculate Score Delta
     long long delta_score = calculate_score_delta_on_swap(instance, connectome, pos1, pos2);
 
+    // 2. Determine Acceptance
     bool accept = false;
-    if (delta_score > 0) { // Improvement
+    if (delta_score > 0) { // Improvement (higher score is better)
         accept = true;
-    } else if (always_accept_better && delta_score == 0) { // Accept neutral moves if flag is set
+    } else if (always_accept_better && delta_score == 0) { // Accept neutral moves
          accept = true;
-    } else if (temperature > 1e-9) { // Avoid division by zero or tiny temps; use annealing probability
-        double acceptance_probability = exp((double)delta_score / temperature);
-        if (acceptance_probability > random_double()) {
-            accept = true;
+    } else if (temperature > 1e-9) { // Avoid issues with T=0
+        if (random_double() < exp((double)delta_score / temperature)) {
+             accept = true;
         }
-    } // else: delta_score < 0 and T is too low or zero, so reject
+    }
+    // else: delta_score < 0 and T=0, reject worsening move
 
+    // 3. Apply or Reject
     if (accept) {
-        // Apply the swap
+        // Perform the swap
         int dense_idx1 = instance->solution[pos1];
         int dense_idx2 = instance->solution[pos2];
 
@@ -273,83 +267,95 @@ bool apply_swap(SolutionInstance* instance, const Connectome* connectome, int po
         instance->node_to_position[dense_idx1] = pos2;
         instance->node_to_position[dense_idx2] = pos1;
 
+        // Update the score incrementally
         instance->forward_score += delta_score;
-
-        // Verification (optional, disable for performance)
-        // long long recalculated_score = calculate_forward_score(instance, connectome);
-        // if (instance->forward_score != recalculated_score) {
-        //     fprintf(stderr, "Score mismatch after swap! Delta: %lld, Incremental: %lld, Recalculated: %lld\n",
-        //             delta_score, instance->forward_score, recalculated_score);
-        //     // exit(1); // Or handle error
-        //     instance->forward_score = recalculated_score; // Correct it
-        // }
-
-        return true;
     }
+    // else: do nothing, instance remains unchanged
 
-    return false;
+    return accept;
 }
 
-// Check if the current instance is better than the best found so far and update if necessary.
-bool update_best_solution(BestSolutionStorage* best_storage, const SolutionInstance* current_instance) {
-    if (current_instance->forward_score > best_storage->best_score) {
-        // Allocate or reallocate best_solution_array if needed
-        if (!best_storage->best_solution_array || best_storage->solution_size != current_instance->solution_size) {
-            free(best_storage->best_solution_array); // Free old one if size differs
-            best_storage->solution_size = current_instance->solution_size;
-            best_storage->best_solution_array = (int*)malloc(best_storage->solution_size * sizeof(int));
-            if (!best_storage->best_solution_array) {
-                perror("Failed to allocate memory for best solution storage");
-                best_storage->best_score = -1; // Indicate error state
-                return false;
-            }
-        }
 
-        // Update best score and copy the solution
-        best_storage->best_score = current_instance->forward_score;
-        copy_solution(best_storage->best_solution_array, current_instance->solution, best_storage->solution_size);
-        // best_storage->instance_id = current_instance->instance_id; // If tracking origin
-
-        return true; // Improvement found
-    }
-    return false; // No improvement
-}
-
+// Simple accessor for the score
 long long get_solution_score(const SolutionInstance* instance) {
-    return instance->forward_score;
+    return instance ? instance->forward_score : -1;
 }
 
+// Simple accessor for the size
 long get_solution_size(const SolutionInstance* instance) {
-    return instance->solution_size;
+     return instance ? instance->solution_size : 0;
 }
 
+// Returns a pointer to the solution array (use with caution - read only ideally)
 int* get_solution_array_ptr(SolutionInstance* instance) {
-    return instance->solution;
+     return instance ? instance->solution : NULL;
 }
+
+// Helper to copy solution array
+void copy_solution(int* dest, const int* src, long size) {
+    if (dest && src && size > 0) {
+        memcpy(dest, src, size * sizeof(int));
+    }
+}
+
+// --- Best Solution Storage Management ---
 
 BestSolutionStorage* create_best_solution_storage() {
     BestSolutionStorage* storage = (BestSolutionStorage*)malloc(sizeof(BestSolutionStorage));
+    if (!storage) {
+        perror("Failed to allocate BestSolutionStorage");
+        return NULL;
+    }
+    storage->best_solution_array = NULL; // Not allocated until initialized
+    storage->best_score = -1; // Or some indicator of uninitialized
     storage->solution_size = 0;
-    storage->best_score = -1;
-    storage->best_solution_array = NULL;
     return storage;
 }
 
 void free_best_solution_storage(BestSolutionStorage* storage) {
-    free(storage->best_solution_array);
+    if (!storage) return;
+    free(storage->best_solution_array); // Free the array first
+    free(storage); // Then free the struct
 }
 
+// Initializes the storage with the state of a given instance.
 void init_best_solution_storage(BestSolutionStorage* storage, const SolutionInstance* instance) {
-    storage->solution_size = instance->solution_size;
+    if (!storage || !instance || instance->solution_size <= 0) return;
+
+    // Allocate or reallocate if size differs (or if uninitialized)
+    if (!storage->best_solution_array || storage->solution_size != instance->solution_size) {
+        free(storage->best_solution_array); // Free old one if necessary
+        storage->solution_size = instance->solution_size;
+        storage->best_solution_array = (int*)malloc(storage->solution_size * sizeof(int));
+        if (!storage->best_solution_array) {
+            perror("Failed to allocate memory for best solution array in storage");
+            storage->solution_size = 0; // Mark as invalid
+            return;
+        }
+    }
+
+    // Copy the solution and score
+    memcpy(storage->best_solution_array, instance->solution, storage->solution_size * sizeof(int));
     storage->best_score = instance->forward_score;
-    storage->best_solution_array = (int*)malloc(instance->solution_size * sizeof(int));
-    copy_solution(storage->best_solution_array, instance->solution, instance->solution_size);    
+}
+
+// Updates the best storage if the current instance is better. Returns true if updated.
+bool update_best_solution(BestSolutionStorage* best_storage, const SolutionInstance* current_instance) {
+    if (!best_storage || !current_instance) return false;
+
+    // Check if current is better (higher score) or if storage is uninitialized
+    if (current_instance->forward_score > best_storage->best_score || best_storage->best_solution_array == NULL) {
+        init_best_solution_storage(best_storage, current_instance); // Use init to handle allocation/copying
+        return true;
+    }
+    return false;
 }
 
 long long get_best_solution_score(const BestSolutionStorage* storage) {
-    return storage->best_score;
+    return storage ? storage->best_score : -1;
 }
 
 int* get_best_solution_array_ptr(BestSolutionStorage* storage) {
-    return storage->best_solution_array;
+    return storage ? storage->best_solution_array : NULL;
 }
+

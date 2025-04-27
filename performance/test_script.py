@@ -9,7 +9,7 @@ print('Minimum Feedback Arc Set Combined Codebase Test Script')
 
 # --- Configuration ---
 # Adjust this path to where your graph.csv is located
-DEFAULT_GRAPH_FILE = "./graph.csv"
+DEFAULT_GRAPH_FILE = "../data/connectome_graph.csv"
 # Use an environment variable or provide a default
 GRAPH_FILE_PATH = os.environ.get("CONNECTOMICS_GRAPH_PATH", DEFAULT_GRAPH_FILE)
 
@@ -18,7 +18,7 @@ OKUBO_EPOCHS = 3
 OKUBO_LOG_INTERVAL = 10000 # Log approx every 10k nodes processed
 
 BADER_THREADS = 4
-BADER_ITERS_PER_THREAD = 1000000 # Keep relatively low for a quick test
+BADER_ITERS_PER_THREAD = 5000000 # Keep relatively low for a quick test
 BADER_UPDATES_PER_THREAD = 5
 BADER_TMIN = 0.001
 BADER_TMAX = 0.1
@@ -28,7 +28,7 @@ BADER_VERBOSITY = 1 # 0=silent, 1=basic, 2=detailed, 10=debug
 
 HASHORVA_INITIAL_TEMP = 10.0 # Lower temp for faster testing
 HASHORVA_COOLING_RATE = 1e-7 # Faster cooling for testing
-HASHORVA_MAX_ITERATIONS = 2000000 # Keep low for testing
+HASHORVA_MAX_ITERATIONS = 20000000 # Keep low for testing
 HASHORVA_LOG_INTERVAL = 500000
 
 LOG_PROGRESS = True
@@ -68,8 +68,8 @@ def main():
         num_nodes = lib.get_connectome_num_nodes(connectome)
         print(f"    Unique Nodes: {num_nodes}")
         # Accessing struct fields directly (example)
-        print(f"    Total Connections: {connectome.num_connections}")
-        print(f"    Total Weight: {connectome.total_weight}")
+        # print(f"    Total Connections: {connectome.num_connections}")
+        # print(f"    Total Weight: {connectome.total_weight}")
 
 
         # 3. Create Initial Solution
@@ -113,6 +113,7 @@ def main():
         score_after_okubo = lib.get_solution_score(instance)
         print(f"Okubo LS finished in {okubo_time:.2f} seconds.")
         print(f"    Score after Okubo LS: {score_after_okubo}")
+        print(f"Actual score is: {lib.calculate_forward_score(instance, connectome)}")
 
         # 6. Run Bader Parallel Annealing
         print(f"\n[6] Running Bader Parallel Annealing ({BADER_THREADS} threads)...")
@@ -135,12 +136,14 @@ def main():
         bader_best_score = lib.get_best_solution_score(bader_best_storage)
         print(f"Bader Annealing finished in {bader_time:.2f} seconds.")
         print(f"    Instance Score after Bader: {score_after_bader}")
+        print(f"Actual score is: {lib.calculate_forward_score(instance, connectome)}")
+
         print(f"    Bader Best Storage Score:   {bader_best_score}")
         if score_after_bader != bader_best_score:
             print("    Note: Instance score and best storage score differ. Instance holds one thread's result, best storage holds overall best.")
 
 
-        # 7. Run Hashorva Simulated Annealing
+        #7. Run Hashorva Simulated Annealing
         print(f"\n[7] Running Hashorva Simulated Annealing...")
         start_time = time.time()
         lib.run_simanneal_parallel(
@@ -169,6 +172,8 @@ def main():
             # Convert C array pointer to Python list
             final_solution_dense = ffi.unpack(solution_ptr, final_size)
             print(f"    Final Score: {final_score}")
+            print(f"Actual score is: {lib.calculate_forward_score(instance, connectome)}")
+
             print(f"    Solution Size: {final_size}")
             print(f"    First 10 dense indices: {final_solution_dense[:10]}")
             print(f"    Last 10 dense indices: {final_solution_dense[-10:]}")
@@ -220,5 +225,5 @@ def main():
 
     print("\n--- Test Script Finished ---")
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

@@ -18,6 +18,8 @@ long long get_solution_score(const SolutionInstance* instance); // Simple access
 long get_solution_size(const SolutionInstance* instance);
 int* get_solution_array_ptr(SolutionInstance* instance); // To read solution back in Python
 
+long long calculate_forward_score(const SolutionInstance* instance, const Connectome* connectome);
+
 // Hashorva Algorithm Entry Point
 void run_simanneal_parallel(
     SolutionInstance* instance,

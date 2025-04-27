@@ -31,7 +31,7 @@ SolutionInstance* create_random_solution_instance(const Connectome* connectome);
 void free_solution_instance(SolutionInstance* instance);
 long long calculate_forward_score(const SolutionInstance* instance, const Connectome* connectome);
 long long calculate_score_delta_on_swap(const SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2);
-bool apply_swap(SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2, double temperature, bool always_accept_better);
+bool apply_swap(SolutionInstance* instance, const Connectome* connectome, int pos1, int pos2, double temperature, bool always_accept_better, unsigned int *rng_seed);
 bool update_best_solution(BestSolutionStorage* best_storage, const SolutionInstance* current_instance);
 void copy_solution(int* dest, const int* src, long size);
 
