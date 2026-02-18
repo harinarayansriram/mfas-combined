@@ -61,7 +61,7 @@ ffi.cdef("""
     SolutionInstance* create_solution_instance(const Connectome* connectome, int* initial_solution_dense_array, bool calculate_initial_score);
     SolutionInstance* create_random_solution_instance(const Connectome* connectome);
     void free_solution_instance(SolutionInstance* instance);
-    long long get_solution_score(const SolutionInstance* instance); // Simple accessor
+    long long get_solution_score(const SolutionInstance* instance); // Simple accessory
     long get_solution_size(const SolutionInstance* instance);
     int* get_solution_array_ptr(SolutionInstance* instance); // To read solution back in Python
     
@@ -125,14 +125,14 @@ c_source = """
 #include "exposed_elements.h"
 """
 
-# Configure the CFFI builder
+
 ffi.set_source(
-    "connectomics_c",  #Python module name
+    "connectomics_c",  
     c_source,
     sources=source_files,
+    libraries=["m"],
     include_dirs=["hashorva"], 
-    # libraries=["m"],  # Link against math library for exp, log
-    extra_compile_args=["-O2", "-fopenmp"],
+    extra_compile_args=["-O3", "-fopenmp"],
     extra_link_args=["-fopenmp"],
 )
 

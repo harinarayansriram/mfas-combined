@@ -50,11 +50,11 @@ int get_or_assign_dense_idx(NodeIdMapping** map_hash_head, uint64_t node_id, lon
     found_entry = (NodeIdMapping*)malloc(sizeof(NodeIdMapping));
     if (!found_entry) {
             perror("Failed to allocate NodeIdMapping entry");
-            // Consider more robust error handling, maybe return -1 and check outside
+            // Should probably more robust error handling, maybe return -1 and check outside
             exit(EXIT_FAILURE); // Simple exit for now
     }
     found_entry->id = node_id;
-    found_entry->dense_idx = (*current_node_count)++; // Assign next dense index and increment count
+    found_entry->dense_idx = (*current_node_count)++;
     HASH_ADD(hh, *map_hash_head, id, sizeof(uint64_t), found_entry);
     return found_entry->dense_idx;
     
@@ -84,20 +84,12 @@ Connectome* load_connectome(const char* graph_filename) {
     // int current_max_id = -1;
     long current_num_nodes = 0;
 
-    // --- Pass 1: Determine max_node_id, count connections, and degrees ---
+    // Pass 1
     if (!fgets(line, sizeof(line), file)) { // Skip header
          fprintf(stderr, "Error: Could not read header line or file is empty.\n");
          fclose(file); free(connectome); return NULL;
     }
 
-    // Use temporary large arrays for counting degrees initially
-    // int max_possible_nodes = 200000; // Estimate or find a better way if needed
-    // int* temp_out_degree = (int*)calloc(max_possible_nodes, sizeof(int));
-    // int* temp_in_degree = (int*)calloc(max_possible_nodes, sizeof(int));
-
-    // We don't know num_nodes yet, so use dynamic temporary degree arrays or a hash map for degrees.
-    // Simpler approach for now: estimate max nodes if possible, or realloc later.
-    // Let's estimate a reasonable starting size and realloc if needed.
     long degree_array_capacity = 200000; // Initial estimate
     int* temp_out_degree = (int*)calloc(degree_array_capacity, sizeof(int));
     int* temp_in_degree = (int*)calloc(degree_array_capacity, sizeof(int));
@@ -116,14 +108,6 @@ Connectome* load_connectome(const char* graph_filename) {
             fprintf(stderr, "Warning: Skipping malformed line: %s", line);
             continue;
         }
-
-        // if (from_id < 0 || to_id < 0 || from_id >= max_possible_nodes || to_id >= max_possible_nodes) {
-        //      fprintf(stderr, "Error: Node ID %d or %d out of assumed range [0, %d). Adjust max_possible_nodes.\n", from_id, to_id, max_possible_nodes);
-        //      fclose(file); free(temp_out_degree); free(temp_in_degree); free(connectome); return NULL;
-        // }
-
-        // if (from_id > current_max_id) current_max_id = from_id;
-        // if (to_id > current_max_id) current_max_id = to_id;
 
         // Get dense indices, potentially resizing degree arrays if needed
         int from_dense_idx = get_or_assign_dense_idx(&connectome->node_id_map_hash, from_id_u64, &current_num_nodes);
@@ -150,28 +134,15 @@ Connectome* load_connectome(const char* graph_filename) {
         temp_in_degree[to_dense_idx]++;
         current_num_connections++;
         current_total_weight += weight;
-
-        // temp_out_degree[from_id]++;
-        // temp_in_degree[to_id]++;
-        // current_num_connections++;
-        // current_total_weight += weight;
     }
 
-    // connectome->max_node_id = current_max_id + 1; // Size needed is max_id + 1
     connectome->num_nodes = current_num_nodes;
     connectome->num_connections = current_num_connections;
     connectome->total_weight = current_total_weight;
 
-    // printf("  - Max Node ID: %d\n", current_max_id);
     printf("  - Unique Nodes: %ld\n", connectome->num_nodes);
     printf("  - Connections: %ld\n", connectome->num_connections);
     printf("  - Total Weight: %lld\n", connectome->total_weight);
-
-    // --- Allocate final Connectome structures ---
-    // connectome->out_degree = (int*)calloc(connectome->max_node_id, sizeof(int));
-    // connectome->in_degree = (int*)calloc(connectome->max_node_id, sizeof(int));
-    // connectome->outgoing = (ConnectionNeighbor**)calloc(connectome->max_node_id, sizeof(ConnectionNeighbor*));
-    // connectome->incoming = (ConnectionNeighbor**)calloc(connectome->max_node_id, sizeof(ConnectionNeighbor*));
 
     connectome->dense_idx_to_node_id = (uint64_t*)malloc(connectome->num_nodes * sizeof(uint64_t));
     connectome->out_degree = (int*)calloc(connectome->num_nodes, sizeof(int));
@@ -210,15 +181,12 @@ Connectome* load_connectome(const char* graph_filename) {
     free(temp_out_degree); // Done with temporary counts
     free(temp_in_degree);
 
-    // --- Pass 2: Populate neighbor lists ---
+    // Pass 2
     rewind(file);
     if (!fgets(line, sizeof(line), file)) { /* Handle error reading header */ }
 
     // Use out/in_degree arrays as insertion indices
     while (fgets(line, sizeof(line), file)) {
-        // int from_id, to_id, weight;
-        // if (sscanf(line, "%d,%d,%d", &from_id, &to_id, &weight) != 3) continue; // Already warned in pass 1
-
         uint64_t from_id_u64, to_id_u64;
         int weight;
 
@@ -249,11 +217,10 @@ Connectome* load_connectome(const char* graph_filename) {
 
     // Free the hash map now that it's transferred to dense_idx_to_node_id
     HASH_CLEAR(hh, connectome->node_id_map_hash); // Free all items
-    free(connectome->node_id_map_hash); // Not strictly needed after HASH_CLEAR frees items, but good practice if head itself was allocated
+    free(connectome->node_id_map_hash); // Not strictly needed after HASH_CLEAR frees items
     connectome->node_id_map_hash = NULL;
 
-   // fclose(file);
-     // --- Pass 3: Sort neighbor lists for binary search ---
+    //  Pass 3
     printf("  - Sorting neighbor lists...\n");
     for (int i = 0; i < connectome->num_nodes; i++) {
         if (connectome->out_degree[i] > 0) {
@@ -263,16 +230,6 @@ Connectome* load_connectome(const char* graph_filename) {
              qsort(connectome->incoming[i], connectome->in_degree[i], sizeof(ConnectionNeighbor), compare_neighbors);
         }
     }
-
-    // --- Calculate num_nodes (count non-zero degree nodes) ---
-    // connectome->num_nodes = 0;
-    // for(int i = 0; i < connectome->max_node_id; ++i) {
-    //     if(connectome->out_degree[i] > 0 || connectome->in_degree[i] > 0) {
-    //         connectome->num_nodes++;
-    //     }
-    // }
-    //  printf("  - Unique Nodes with Connections: %ld\n", connectome->num_nodes);
-    //  printf("Connectome loading complete.\n");
 
     return connectome;
 }

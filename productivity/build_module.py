@@ -125,13 +125,12 @@ c_source = """
 #include "exposed_elements.h"
 """
 
-# Configure the CFFI builder
 ffi.set_source(
-    "connectomics_c_productivity",  #Python module name
+    "connectomics_c_productivity", 
     c_source,
-    sources=source_files, 
-    libraries=["m"],  # Link against math library for exp, log
-    extra_compile_args=["-O2", "-fopenmp"],
+    sources=source_files,
+    libraries=["m"],
+    extra_compile_args=["-O3", "-fopenmp"],
     extra_link_args=["-fopenmp"],
 )
 
