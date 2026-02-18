@@ -339,3 +339,19 @@ Signature:
 
 - Inputs: seed (unsigned int)
 - Returns: None
+
+
+---
+
+This repository accompanies the paper:
+
+Rocket-Crane Algorithm for the Feedback Arc Set Problem
+David A. Bader, Justin Ellis-Joyce, Gert-Jan Both, Srinivas C. Turaga, Harinarayan Asoori Sriram, Srijith Chinthalapudi, Zhihui Du
+June, 2025
+
+Understanding information flow in the brain can be facilitated by arranging neurons in the fly connectome to form a maximally ``feedforward’’ structure. This task is naturally formulated as the Minimum Feedback Arc Set (MFAS)–a well-known NP-hard problem, especially for large-scale graphs. To address this, we propose the Rocket-Crane algorithm, an efficient two-phase method for solving MFAS. In the first phase, we develop a continuous-space optimization method that rapidly generates excellent solutions. In the second phase, we refine these solutions through advanced exploration techniques that integrate randomized and heuristic strategies to effectively escape local minima. Extensive experiments demonstrate that Rocket-Crane outperforms state-of-the-art methods in terms of solution quality, scalability, and computational efficiency. On the primary benchmark–the fly connectome–our method achieved a feedforward arc set with a total forward weight of 35,459,266 (about 85%), the highest among all competing methods. The algorithm is open-source and available on GitHub.
+
+The 17th International Conference on Advances in Social Networks Analysis and Mining, Niagara Falls, Ontario, Canada, August 25-28, 2025.
+
+https://davidbader.net/publication/2025-bebtscd/
+
